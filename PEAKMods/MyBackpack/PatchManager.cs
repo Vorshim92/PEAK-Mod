@@ -15,6 +15,8 @@ namespace BackpackViewerMod
         {
             LoadPatch(typeof(Patches.BackpackPatches), "Backpack");
             LoadPatch(typeof(Patches.UIPatches), "UI");
+            LoadPatch(typeof(Patches.BackpackUISlotsPatches), "BackpackUI"); 
+
         }
 
         public static void LoadPatch(Type containerClass, string patchName)
