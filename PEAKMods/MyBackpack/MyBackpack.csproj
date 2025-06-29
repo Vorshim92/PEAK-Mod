@@ -56,7 +56,26 @@
       <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
       <Private>False</Private>
     </Reference>
+
+        <!-- === AGGIUNGI QUESTA RIGA === -->
+    <Reference Include="Zorro.Core.Runtime">
+      <!-- Assicurati che il percorso sia corretto per la tua installazione! -->
+      <HintPath>$(GameManaged)\Zorro.Core.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <Reference Include="PhotonRealtime">
+      <HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PhotonUnityNetworking">
+      <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
   </ItemGroup>
+
+  
 
   <!-- Build Events -->
   <Target Name="CopyToGame" AfterTargets="Build">
