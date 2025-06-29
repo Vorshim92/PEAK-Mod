@@ -1,148 +1,198 @@
 using HarmonyLib;
 using UnityEngine;
-using UnityEngine.UI; // NECESSARIO per Image
+using UnityEngine.UI;
+using TMPro; // Aggiunto per le etichette con il nome
 using System.Collections.Generic;
 using System;
 
 namespace BackpackViewerMod.Patches
 {
+    // Classe helper per contenere gli elementi UI di UN giocatore
+    public class PlayerBackpackDisplay
+    {
+        public GameObject MainContainer { get; set; }
+        public TextMeshProUGUI NameLabel { get; set; }
+        public List<Image> IconImages { get; } = new List<Image>();
+    }
+
     public class BackpackUISlotsPatches
     {
-        // Lista che conterrà i componenti Image delle nostre icone, non l'intero InventoryItemUI.
-        private static readonly List<Image> backpackIconImages = new List<Image>();
-        // Lista per i GameObject degli slot, per poterli nascondere/mostrare.
-        private static readonly List<GameObject> backpackSlotObjects = new List<GameObject>();
-        
-        private static bool isInitialized = false;
+        // Usiamo un dizionario per tenere traccia della UI di ogni personaggio.
+        private static readonly Dictionary<Character, PlayerBackpackDisplay> playerDisplays = new Dictionary<Character, PlayerBackpackDisplay>();
+        private static Transform parentCanvas;
 
-        [HarmonyPatch(typeof(GUIManager), "Start")]
-        public class GUIManager_Start_Patch
+        // Si aggancia a LateUpdate, che è il metodo corretto.
+        [HarmonyPatch(typeof(GUIManager), "LateUpdate")]
+        public class GUIManager_LateUpdate_Patch
         {
             static void Postfix(GUIManager __instance)
             {
-                if (isInitialized) return;
-
-                try
+                // Se la feature è disabilitata, nascondiamo tutto e usciamo.
+                if (!PluginConfig.showPlayerBackpackSlots.Value)
                 {
-                    Utils.LogInfo("Creazione degli slot UI per lo zaino (metodo pulito)...");
-                    
-                    // Genitore: la canvas principale della UI.
-                    Transform parentCanvas = __instance.hudCanvas.transform;
-                    
-                    for (int i = 0; i < 4; i++)
+                    if (playerDisplays.Count > 0)
                     {
-                        // 1. Creiamo un GameObject per lo slot (lo sfondo)
-                        GameObject slotBg = new GameObject($"BackpackSlot_BG_{i}");
-                        slotBg.transform.SetParent(parentCanvas, false);
+                        foreach(var display in playerDisplays.Values) GameObject.Destroy(display.MainContainer);
+                        playerDisplays.Clear();
+                    }
+                    return;
+                }
+                
+                // Inizializzazione del canvas, se non già fatto
+                if (parentCanvas == null && __instance.hudCanvas != null)
+                {
+                    parentCanvas = __instance.hudCanvas.transform;
+                }
+                if (parentCanvas == null) return;
 
-                        Image bgImage = slotBg.AddComponent<Image>();
-                        bgImage.color = new Color(0.1f, 0.1f, 0.1f, 0.5f); // Sfondo scuro semi-trasparente
+                // 1. Pulisce la UI dei giocatori che si sono disconnessi
+                CleanupDisconnectedPlayers();
 
-                        RectTransform bgRect = slotBg.GetComponent<RectTransform>();
-                        
-                        // --- Posizionamento in alto a destra ---
-                        bgRect.anchorMin = new Vector2(1, 1); // Ancora in alto a destra
-                        bgRect.anchorMax = new Vector2(1, 1); // Ancora in alto a destra
-                        bgRect.pivot = new Vector2(1, 1);     // Il punto di rotazione/scala è l'angolo in alto a destra
-                        bgRect.sizeDelta = new Vector2(60, 60); // Dimensione dello slot
-                        
-                        // Posizione: dall'angolo, sposta a sinistra e in basso.
-                        // -10 di padding dal bordo.
-                        // i * 65 per creare la colonna verticale.
-                        bgRect.anchoredPosition = new Vector2(-10, -10 - (i * 65));
+                // 2. Itera su tutti i personaggi e aggiorna la loro UI
+                float totalVerticalOffset = 10f; // Spazio dal bordo superiore dello schermo
+                foreach (Character character in Character.AllCharacters)
+                {
+                    if (character == null || character.player == null) continue;
 
-                        // 2. Creiamo un GameObject per l'icona dell'oggetto, come figlio dello sfondo
-                        GameObject iconObj = new GameObject($"BackpackSlot_Icon_{i}");
-                        iconObj.transform.SetParent(slotBg.transform, false);
-                        
-                        Image iconImage = iconObj.AddComponent<Image>();
-                        iconImage.color = Color.white;
-                        
-                        RectTransform iconRect = iconObj.GetComponent<RectTransform>();
-                        iconRect.anchorMin = new Vector2(0, 0); // Ancora agli angoli del genitore (lo sfondo)
-                        iconRect.anchorMax = new Vector2(1, 1);
-                        iconRect.pivot = new Vector2(0.5f, 0.5f);
-                        iconRect.sizeDelta = new Vector2(-10, -10); // Un po' più piccolo dello sfondo per creare un bordo
-                        
-                        // Aggiungiamo alla nostra lista
-                        backpackSlotObjects.Add(slotBg);
-                        backpackIconImages.Add(iconImage);
-                        
-                        slotBg.SetActive(false); // Inizialmente nascosto
+                    bool isLocalPlayer = character.IsLocal;
+                    
+                    // Se non è il giocatore locale e l'opzione è disattivata, salta e pulisci
+                    if (!isLocalPlayer && !PluginConfig.showOtherPlayerBackpackSlots.Value)
+                    {
+                        if (playerDisplays.ContainsKey(character))
+                        {
+                            GameObject.Destroy(playerDisplays[character].MainContainer);
+                            playerDisplays.Remove(character);
+                        }
+                        continue;
+                    }
+
+                    // Se il personaggio non ha una UI, creala
+                    if (!playerDisplays.ContainsKey(character))
+                    {
+                        playerDisplays.Add(character, CreateDisplayForPlayer(character));
                     }
                     
-                    isInitialized = true;
-                    Utils.LogInfo($"Creati {backpackSlotObjects.Count} slot UI puliti per lo zaino.");
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Errore durante la creazione degli slot UI per lo zaino: {ex.Message}\n{ex.StackTrace}");
+                    PlayerBackpackDisplay display = playerDisplays[character];
+                    bool hasBackpack = !character.player.backpackSlot.IsEmpty();
+                    
+                    // Gestisce la visibilità
+                    if (display.MainContainer.activeSelf != hasBackpack)
+                    {
+                        display.MainContainer.SetActive(hasBackpack);
+                    }
+                    
+                    // Se ha uno zaino, posiziona e aggiorna
+                    if (hasBackpack)
+                    {
+                        RectTransform rect = display.MainContainer.GetComponent<RectTransform>();
+                        rect.anchoredPosition = new Vector2(rect.anchoredPosition.x, -totalVerticalOffset);
+                        totalVerticalOffset += rect.sizeDelta.y + 10f; // Aggiunge spazio per il prossimo giocatore
+
+                        UpdateDisplayIcons(character, display);
+                    }
                 }
             }
         }
 
-        [HarmonyPatch(typeof(GUIManager), "UpdateItems")]
-        public class GUIManager_UpdateItems_Patch
+        private static void CleanupDisconnectedPlayers()
         {
-            static void Postfix(GUIManager __instance)
+            List<Character> toRemove = new List<Character>();
+            foreach (var kvp in playerDisplays)
             {
-                if (!isInitialized || backpackSlotObjects.Count == 0) return;
-                
-                try
+                if (kvp.Key == null || !Character.AllCharacters.Contains(kvp.Key))
+                    toRemove.Add(kvp.Key);
+            }
+            foreach (var character in toRemove)
+            {
+                GameObject.Destroy(playerDisplays[character].MainContainer);
+                playerDisplays.Remove(character);
+            }
+        }
+
+        private static PlayerBackpackDisplay CreateDisplayForPlayer(Character character)
+        {
+            var display = new PlayerBackpackDisplay();
+            bool isLocal = character.IsLocal;
+            float scale = isLocal ? 1.0f : PluginConfig.otherPlayerSlotsScale.Value;
+            
+            // Logica di creazione UI (simile a prima, ma più pulita)
+            display.MainContainer = new GameObject($"BackpackDisplay_{character.characterName}");
+            display.MainContainer.transform.SetParent(parentCanvas, false);
+            var mainRect = display.MainContainer.AddComponent<RectTransform>();
+            mainRect.anchorMin = new Vector2(1, 1);
+            mainRect.anchorMax = new Vector2(1, 1);
+            mainRect.pivot = new Vector2(1, 1);
+            mainRect.anchoredPosition = new Vector2(-10, -10);
+
+            // Nome
+            var labelObj = new GameObject("NameLabel");
+            labelObj.transform.SetParent(display.MainContainer.transform, false);
+            display.NameLabel = labelObj.AddComponent<TextMeshProUGUI>();
+            display.NameLabel.text = character.characterName;
+            display.NameLabel.fontSize = 14 * scale;
+            display.NameLabel.alignment = TextAlignmentOptions.TopRight;
+            display.NameLabel.color = character.refs.customization.PlayerColor;
+            var labelRect = labelObj.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(1, 1);
+            labelRect.anchorMax = new Vector2(1, 1);
+            labelRect.pivot = new Vector2(1, 1);
+            labelRect.sizeDelta = new Vector2(100 * scale, 20 * scale);
+            labelRect.anchoredPosition = Vector2.zero;
+
+            // Slot
+            float slotSize = 60 * scale;
+            for (int i = 0; i < 4; i++)
+            {
+                var slotBg = new GameObject($"Slot_BG_{i}");
+                slotBg.transform.SetParent(display.MainContainer.transform, false);
+                slotBg.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.1f, 0.5f);
+                var bgRect = slotBg.GetComponent<RectTransform>();
+                bgRect.anchorMin = new Vector2(1, 1);
+                bgRect.anchorMax = new Vector2(1, 1);
+                bgRect.pivot = new Vector2(1, 1);
+                bgRect.sizeDelta = new Vector2(slotSize, slotSize);
+                bgRect.anchoredPosition = new Vector2(0, -labelRect.sizeDelta.y - (i * (slotSize + 5 * scale)));
+
+                var iconObj = new GameObject($"Icon_{i}");
+                iconObj.transform.SetParent(slotBg.transform, false);
+                var iconImage = iconObj.AddComponent<Image>();
+                var iconRect = iconObj.GetComponent<RectTransform>();
+                iconRect.anchorMin = Vector2.zero;
+                iconRect.anchorMax = Vector2.one;
+                iconRect.sizeDelta = new Vector2(-10 * scale, -10 * scale);
+                display.IconImages.Add(iconImage);
+            }
+
+            mainRect.sizeDelta = new Vector2(slotSize, labelRect.sizeDelta.y + 4 * slotSize + 3 * (5*scale));
+            display.MainContainer.SetActive(false);
+            return display;
+        }
+
+        private static void UpdateDisplayIcons(Character character, PlayerBackpackDisplay display)
+        {
+            ItemInstanceData backpackInstanceData = character.player.backpackSlot.data;
+            if (backpackInstanceData == null) return;
+
+            if (backpackInstanceData.TryGetDataEntry(DataEntryKey.BackpackData, out BackpackData backpackData))
+            {
+                for (int i = 0; i < display.IconImages.Count; i++)
                 {
-                    var localPlayer = Character.localCharacter?.player;
-                    if (localPlayer == null) return;
-
-                    bool hasBackpack = !localPlayer.backpackSlot.IsEmpty();
-
-                    // Gestire la visibilità
-                    for (int i = 0; i < backpackSlotObjects.Count; i++)
+                    ItemSlot slotData = backpackData.itemSlots[i];
+                    Image icon = display.IconImages[i];
+                    if (slotData.IsEmpty())
                     {
-                        if (backpackSlotObjects[i].activeSelf != hasBackpack)
-                            backpackSlotObjects[i].SetActive(hasBackpack);
+                        icon.enabled = false;
                     }
-
-                    // Sincronizzare le icone
-                    if (hasBackpack)
+                    else
                     {
-                        ItemInstanceData backpackInstanceData = localPlayer.backpackSlot.data;
-                        BackpackData backpackData;
-
-                        if (backpackInstanceData != null && backpackInstanceData.TryGetDataEntry(DataEntryKey.BackpackData, out backpackData))
+                        icon.enabled = true;
+                        Texture2D tex = slotData.prefab.UIData.icon;
+                        if (tex != null)
                         {
-                            for (int i = 0; i < backpackIconImages.Count; i++)
-                            {
-                                if (i < backpackData.itemSlots.Length)
-                                {
-                                    ItemSlot currentSlotData = backpackData.itemSlots[i];
-                                    Image currentIconImage = backpackIconImages[i];
-
-                                    if (currentSlotData.IsEmpty())
-                                    {
-                                        currentIconImage.enabled = false;
-                                    }
-                                    else
-                                    {
-                                        currentIconImage.enabled = true;
-                                        // Dobbiamo convertire la Texture2D dell'item in uno Sprite.
-                                        Texture2D itemTexture = currentSlotData.prefab.UIData.icon;
-                                        if (itemTexture != null)
-                                        {
-                                            currentIconImage.sprite = Sprite.Create(itemTexture, new Rect(0, 0, itemTexture.width, itemTexture.height), new Vector2(0.5f, 0.5f));
-                                        }
-                                        else
-                                        {
-                                            currentIconImage.enabled = false;
-                                        }
-                                    }
-                                }
-                            }
+                            icon.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Errore durante l'aggiornamento degli slot UI dello zaino: {ex.Message}");
                 }
             }
         }
