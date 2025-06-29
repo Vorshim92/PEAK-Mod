@@ -11,15 +11,11 @@ namespace BackpackViewerMod
         
         // Keybinds
         public static ConfigEntry<float> holdTime;
-        // public static ConfigEntry<bool> useSecondaryAction; // RIMOSSO
         public static ConfigEntry<bool> useHoldMethod;
         
         // Visual
         public static ConfigEntry<bool> showHoldPrompt;
         
-        // Advanced
-        public static ConfigEntry<bool> useDynamicCalls;
-
         public static void ConfigBind(ConfigFile config)
         {
             try
@@ -40,7 +36,6 @@ namespace BackpackViewerMod
                     "Time in seconds to hold the interact key before opening backpack"
                 );
                 
-                // L'OPZIONE "useSecondaryAction" E' STATA RIMOSSA
                 
                 useHoldMethod = config.Bind(
                     "Keybinds",
@@ -60,13 +55,6 @@ namespace BackpackViewerMod
                     "Show 'Hold to Open' prompt when holding a backpack."
                 );
                 
-                // Advanced settings
-                useDynamicCalls = config.Bind(
-                    "Advanced",
-                    "UseDynamicCalls",
-                    false,
-                    "Use dynamic instead of reflection for method calls (experimental)"
-                );
                 
                 Utils.LogInfo($"Config binding complete. ModEnabled = {isPluginEnable.Value}");
                 
@@ -81,7 +69,6 @@ namespace BackpackViewerMod
                 holdTime = config.Bind("Keybinds", "HoldTime", 0.25f);
                 useHoldMethod = config.Bind("Keybinds", "UseHoldMethod", true);
                 showHoldPrompt = config.Bind("Visual", "ShowHoldPrompt", true);
-                useDynamicCalls = config.Bind("Advanced", "UseDynamicCalls", false);
             }
         }
 

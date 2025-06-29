@@ -9,7 +9,7 @@ namespace BackpackViewerMod.Patches
     {
         // State management
         private static bool isHoldingKey = false;
-        private static float keyHeldTime = 0f;
+        internal static float keyHeldTime = 0f;
         private static bool wheelOpened = false;
 
         // Main patch to add backpack viewing functionality

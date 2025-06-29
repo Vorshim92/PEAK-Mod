@@ -82,7 +82,8 @@ namespace BackpackViewerMod.Patches
                     var currentItem = localCharacter.data?.currentItem;
                     if (currentItem != null && currentItem.GetType().Name == "Backpack")
                     {
-                        var keyHeldTime = GetKeyHeldTime();
+                        var keyHeldTime = BackpackPatches.keyHeldTime;
+
                         if (keyHeldTime > 0f)
                         {
                             ShowHoldProgress(__instance, keyHeldTime / PluginConfig.holdTime.Value);
@@ -96,12 +97,6 @@ namespace BackpackViewerMod.Patches
                 }
                 
                 return true;
-            }
-
-            static float GetKeyHeldTime()
-            {
-                var field = typeof(BackpackPatches).GetField("keyHeldTime", BindingFlags.NonPublic | BindingFlags.Static);
-                return field != null ? (float)field.GetValue(null) : 0f;
             }
 
             static void ShowHoldProgress(GUIManager guiManager, float progress)
