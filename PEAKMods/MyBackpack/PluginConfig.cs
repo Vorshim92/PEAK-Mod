@@ -11,7 +11,7 @@ namespace BackpackViewerMod
         
         // Keybinds
         public static ConfigEntry<float> holdTime;
-        public static ConfigEntry<bool> useSecondaryAction;
+        // public static ConfigEntry<bool> useSecondaryAction; // RIMOSSO
         public static ConfigEntry<bool> useHoldMethod;
         
         // Visual
@@ -40,12 +40,7 @@ namespace BackpackViewerMod
                     "Time in seconds to hold the interact key before opening backpack"
                 );
                 
-                useSecondaryAction = config.Bind(
-                    "Keybinds",
-                    "UseSecondaryAction",
-                    true,
-                    "Allow using secondary action (right click) to open backpack"
-                );
+                // L'OPZIONE "useSecondaryAction" E' STATA RIMOSSA
                 
                 useHoldMethod = config.Bind(
                     "Keybinds",
@@ -55,11 +50,14 @@ namespace BackpackViewerMod
                 );
                 
                 // Visual settings
+                // NOTA: Questa opzione ora non è più necessaria perché il prompt appare con il sistema del gioco.
+                // Puoi decidere di rimuoverla o di lasciarla nel caso tu voglia
+                // disabilitare il prompt "Hold to Open" in futuro. Per ora la lascio.
                 showHoldPrompt = config.Bind(
                     "Visual",
                     "ShowHoldPrompt",
                     true,
-                    "Show 'hold to open' prompt when holding backpack"
+                    "Show 'Hold to Open' prompt when holding a backpack."
                 );
                 
                 // Advanced settings
@@ -81,7 +79,6 @@ namespace BackpackViewerMod
                 // Set default values if config fails
                 isPluginEnable = config.Bind("General", "ModEnabled", true);
                 holdTime = config.Bind("Keybinds", "HoldTime", 0.25f);
-                useSecondaryAction = config.Bind("Keybinds", "UseSecondaryAction", true);
                 useHoldMethod = config.Bind("Keybinds", "UseHoldMethod", true);
                 showHoldPrompt = config.Bind("Visual", "ShowHoldPrompt", true);
                 useDynamicCalls = config.Bind("Advanced", "UseDynamicCalls", false);

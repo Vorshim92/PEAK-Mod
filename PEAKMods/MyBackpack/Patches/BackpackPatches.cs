@@ -160,65 +160,6 @@ namespace BackpackViewerMod.Patches
             }
         }
 
-        [HarmonyPatch]
-        public class Backpack_Secondary_Patches
-        {
-            static bool Prepare()
-            {
-                return PluginConfig.useSecondaryAction.Value;
-            }
-
-            [HarmonyPostfix]
-            [HarmonyPatch(typeof(Item), "CanUseSecondary")]
-            static void CanUseSecondary_Postfix(ref bool __result, Item __instance)
-            {
-                try
-                {
-                    if (__instance.GetType().Name == "Backpack" && __instance.itemState == ItemState.Held)
-                    {
-                        __result = true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Error in CanUseSecondary patch: {ex.Message}");
-                }
-            }
-
-            [HarmonyPrefix]
-            [HarmonyPatch(typeof(Item), "StartUseSecondary")]
-            static bool StartUseSecondary_Prefix(Item __instance)
-            {
-                try
-                {
-                    if (__instance.GetType().Name == "Backpack" && 
-                        __instance.itemState == ItemState.Held && 
-                        __instance.holderCharacter != null)
-                    {
-                        var backpackRefType = __instance.GetType().Assembly.GetType("BackpackReference");
-                        var getFromBackpackMethod = backpackRefType?.GetMethod("GetFromBackpackItem", 
-                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                        
-                        if (getFromBackpackMethod != null)
-                        {
-                            var backpackRef = getFromBackpackMethod.Invoke(null, new object[] { __instance });
-                            
-                            var openMethod = typeof(GUIManager).GetMethod("OpenBackpackWheel");
-                            if (openMethod != null)
-                            {
-                                openMethod.Invoke(GUIManager.instance, new object[] { backpackRef });
-                                return false;
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Error in StartUseSecondary patch: {ex.Message}");
-                }
-                
-                return true;
-            }
-        }
+        // LA CLASSE "Backpack_Secondary_Patches" E' STATA COMPLETAMENTE RIMOSSA
     }
 }

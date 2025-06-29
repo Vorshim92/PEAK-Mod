@@ -7,75 +7,44 @@ namespace BackpackViewerMod.Patches
 {
     public class UIPatches
     {
-        [HarmonyPatch(typeof(GUIManager), "RefreshInteractablePrompt")]
-        public class GUIManager_RefreshInteractablePrompt_Patch
+        // Questo patch si aggancia al metodo che aggiorna i prompt degli oggetti in basso a destra.
+        [HarmonyPatch(typeof(GUIManager), "UpdateItemPrompts")]
+        public class GUIManager_UpdateItemPrompts_Patch
         {
             static void Postfix(GUIManager __instance)
             {
                 try
                 {
-                    if (!PluginConfig.showHoldPrompt.Value)
+                    var localCharacter = Character.localCharacter;
+                    if (localCharacter == null || localCharacter.data?.currentItem == null)
                         return;
 
-                    var localCharacter = Character.localCharacter;
-                    if (localCharacter == null)
-                        return;
+                    var currentItem = localCharacter.data.currentItem;
                     
-                    var currentItem = localCharacter.data?.currentItem;
-                    if (currentItem != null && currentItem.GetType().Name == "Backpack")
+                    // Controlliamo se l'oggetto in mano è uno zaino
+                    if (currentItem.GetType().Name == "Backpack" && currentItem.itemState == ItemState.Held)
                     {
-                        if (!__instance.wheelActive && !__instance.windowBlockingInput)
+                        // Se l'opzione "Hold Method" è attiva, mostriamo il relativo prompt.
+                        if (PluginConfig.useHoldMethod.Value && __instance.itemPromptMain != null)
                         {
-                            ShowBackpackPrompt(__instance);
+                            // Attiviamo il prompt principale e gli diamo il nostro testo.
+                            __instance.itemPromptMain.gameObject.SetActive(true);
+                            __instance.itemPromptMain.text = "Hold to Open"; 
                         }
+
+                        // LA PARTE PER L'AZIONE SECONDARIA E' STATA RIMOSSA
                     }
                 }
                 catch (Exception ex)
                 {
-                    Utils.LogError($"Error in RefreshInteractablePrompt patch: {ex.Message}");
-                }
-            }
-            
-            static void ShowBackpackPrompt(GUIManager guiManager)
-            {
-                try
-                {
-                    var interactPromptHold = guiManager.interactPromptHold;
-                    if (interactPromptHold != null)
-                    {
-                        interactPromptHold.SetActive(true);
-                    }
-                    
-                    var interactPromptText = guiManager.interactPromptText;
-                    if (interactPromptText != null)
-                    {
-                        var textProp = interactPromptText.GetType().GetProperty("text");
-                        if (textProp != null)
-                        {
-                            if (PluginConfig.useHoldMethod.Value)
-                            {
-                                textProp.SetValue(interactPromptText, "hold to open backpack");
-                            }
-                            else if (PluginConfig.useSecondaryAction.Value)
-                            {
-                                textProp.SetValue(interactPromptText, "right click to open");
-                            }
-                        }
-                    }
-                    
-                    var interactPromptPrimary = guiManager.interactPromptPrimary;
-                    if (interactPromptPrimary != null)
-                    {
-                        interactPromptPrimary.SetActive(true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Error showing backpack prompt: {ex.Message}");
+                    Utils.LogError($"Error in UpdateItemPrompts_Patch: {ex.Message}");
                 }
             }
         }
 
+
+        // Questo patch va mantenuto, serve a mostrare la barra di progresso circolare
+        // quando si tiene premuto il tasto "E".
         [HarmonyPatch(typeof(GUIManager), "UpdateThrow")]
         public class GUIManager_UpdateThrow_Patch
         {
