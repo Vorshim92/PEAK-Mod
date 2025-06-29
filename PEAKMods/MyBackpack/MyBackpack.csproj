@@ -2,11 +2,12 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>MyBackpack</AssemblyName>
-    <Description>Use backpack from your hand!</Description>
+    <AssemblyName>BackpackViewerMod</AssemblyName>
+    <Description>Allows viewing backpack contents while holding it</Description>
     <Version>1.0.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
   </PropertyGroup>
 
   <!-- Importa le proprietà condivise (come GameDir) -->
@@ -15,23 +16,53 @@
   <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
     <PackageReference Include="BepInEx.Core" Version="5.*" />
-    <PackageReference Include="BepInEx.PluginInfoProps" Version="1.*" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
+    <PackageReference Include="HarmonyX" Version="2.10.2" />
     <PackageReference Include="UnityEngine.Modules" Version="2023.2.19" IncludeAssets="compile" />
   </ItemGroup>
 
   <ItemGroup>
-  <!-- Riferimenti specifici del gioco -->
+    <!-- Game Assembly References -->
     <Reference Include="Assembly-CSharp">
       <HintPath>$(GameManaged)\Assembly-CSharp.dll</HintPath>
       <Private>False</Private>
     </Reference>
-  </ItemGroup>
-  
-  <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
-    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all" />
+    
+    <!-- Photon Unity Networking -->
+    <Reference Include="PhotonUnityNetworking">
+      <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    
+    <!-- Unity TextMeshPro -->
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GameManaged)\Unity.TextMeshPro.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    
+    <!-- Unity Input System -->
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(GameManaged)\Unity.InputSystem.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    
+    <!-- Additional Unity Modules -->
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
-  <Target Name="CopyDLLs" AfterTargets="Build">
-    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(Destination)" />
+  <!-- Build Events -->
+  <Target Name="CopyToGame" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" 
+          DestinationFolder="$(Destination)" />
+    <Message Text="Plugin copied to game directory" Importance="high" />
   </Target>
+
 </Project>
