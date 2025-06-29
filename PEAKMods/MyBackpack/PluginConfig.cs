@@ -32,7 +32,7 @@ namespace BackpackViewerMod
                 holdTime = config.Bind(
                     "Keybinds",
                     "HoldTime",
-                    0.25f,
+                    0.75f,
                     "Time in seconds to hold the interact key before opening backpack"
                 );
                 
