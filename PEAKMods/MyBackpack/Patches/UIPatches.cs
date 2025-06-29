@@ -2,116 +2,118 @@ using HarmonyLib;
 using UnityEngine;
 using System;
 using System.Reflection;
+using TMPro;
 
 namespace BackpackViewerMod.Patches
 {
     public class UIPatches
     {
-        // Questo patch si aggancia al metodo che aggiorna i prompt degli oggetti in basso a destra.
-        [HarmonyPatch(typeof(GUIManager), "UpdateItemPrompts")]
-        public class GUIManager_UpdateItemPrompts_Patch
+        private static bool promptShownByMod = false;
+
+        [HarmonyPatch(typeof(GUIManager), "LateUpdate")]
+        public class GUIManager_LateUpdate_Patch
         {
             static void Postfix(GUIManager __instance)
             {
                 try
                 {
                     var localCharacter = Character.localCharacter;
-                    if (localCharacter == null || localCharacter.data?.currentItem == null)
-                        return;
+                    if (localCharacter == null) return;
 
-                    var currentItem = localCharacter.data.currentItem;
-                    
-                    // Controlliamo se l'oggetto in mano è uno zaino
-                    if (currentItem.GetType().Name == "Backpack" && currentItem.itemState == ItemState.Held)
+                    var currentItem = localCharacter.data?.currentItem;
+                    bool holdingBackpack = currentItem != null && currentItem.GetType().Name == "Backpack";
+
+                    bool shouldShow = holdingBackpack && !__instance.wheelActive && !__instance.windowBlockingInput;
+
+                    if (shouldShow && !(__instance.throwGO && __instance.throwGO.activeSelf))
                     {
-                        // Se l'opzione "Hold Method" è attiva, mostriamo il relativo prompt.
-                        if (PluginConfig.useHoldMethod.Value && __instance.itemPromptMain != null)
-                        {
-                            // Attiviamo il prompt principale e gli diamo il nostro testo.
-                            __instance.itemPromptMain.gameObject.SetActive(true);
-                            __instance.itemPromptMain.text = "Hold to Open"; 
-                        }
-
-                        // LA PARTE PER L'AZIONE SECONDARIA E' STATA RIMOSSA
+                        __instance.interactPromptHold.SetActive(true);
+                        ModifyDescriptionText(__instance.interactPromptHold, "open", "Hold to Open Backpack");
+                        promptShownByMod = true;
+                    }
+                    else if (promptShownByMod)
+                    {
+                        __instance.interactPromptHold.SetActive(false);
+                        ModifyDescriptionText(__instance.interactPromptHold, "hold to open backpack", "open");
+                        promptShownByMod = false;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Utils.LogError($"Error in UpdateItemPrompts_Patch: {ex.Message}");
+                    Utils.LogError($"Error in GUIManager_LateUpdate_Patch: {ex.Message}");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Trova TUTTI i componenti di testo figli e modifica solo quello che corrisponde.
+        /// Questo è il metodo corretto per non toccare l'icona della keybind.
+        /// </summary>
+        /// <param name="promptGameObject">Il contenitore del prompt (es. interactPromptHold)</param>
+        /// <param name="textToFind">Il testo da cercare (case-insensitive)</param>
+        /// <param name="newText">Il nuovo testo da impostare</param>
+        static void ModifyDescriptionText(GameObject promptGameObject, string textToFind, string newText)
+        {
+            if (promptGameObject == null) return;
+            
+            var textComponents = promptGameObject.GetComponentsInChildren<TextMeshProUGUI>();
+            
+            foreach (var textComponent in textComponents)
+            {
+                if (textComponent.text.ToLower() == textToFind.ToLower())
+                {
+                    textComponent.text = newText;
+                    break;
                 }
             }
         }
 
 
-        // Questo patch va mantenuto, serve a mostrare la barra di progresso circolare
-        // quando si tiene premuto il tasto "E".
         [HarmonyPatch(typeof(GUIManager), "UpdateThrow")]
         public class GUIManager_UpdateThrow_Patch
         {
-            static void Postfix(GUIManager __instance)
+            static bool Prefix(GUIManager __instance)
             {
                 try
                 {
                     var localCharacter = Character.localCharacter;
-                    if (localCharacter == null || !PluginConfig.useHoldMethod.Value)
-                        return;
+                    if (localCharacter == null) return true;
 
                     var currentItem = localCharacter.data?.currentItem;
                     if (currentItem != null && currentItem.GetType().Name == "Backpack")
                     {
                         var keyHeldTime = GetKeyHeldTime();
-                        if (keyHeldTime > 0f && keyHeldTime < PluginConfig.holdTime.Value)
+                        if (keyHeldTime > 0f)
                         {
                             ShowHoldProgress(__instance, keyHeldTime / PluginConfig.holdTime.Value);
+                            return false;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Utils.LogError($"Error in UpdateThrow patch: {ex.Message}");
+                    Utils.LogError($"Error in UpdateThrow prefix patch: {ex.Message}");
                 }
+                
+                return true;
             }
 
             static float GetKeyHeldTime()
             {
-                var field = typeof(BackpackPatches).GetField("keyHeldTime", 
-                    BindingFlags.NonPublic | BindingFlags.Static);
-                
-                if (field != null)
-                {
-                    return (float)field.GetValue(null);
-                }
-                
-                return 0f;
+                var field = typeof(BackpackPatches).GetField("keyHeldTime", BindingFlags.NonPublic | BindingFlags.Static);
+                return field != null ? (float)field.GetValue(null) : 0f;
             }
 
             static void ShowHoldProgress(GUIManager guiManager, float progress)
             {
-                try
+                if (guiManager.throwGO != null && guiManager.throwBar != null)
                 {
-                    var throwGO = guiManager.throwGO;
-                    var throwBar = guiManager.throwBar;
+                    guiManager.throwGO.SetActive(true);
+                    var fillProp = guiManager.throwBar.GetType().GetProperty("fillAmount");
+                    if (fillProp != null) fillProp.SetValue(guiManager.throwBar, Mathf.Clamp01(progress));
                     
-                    if (throwGO != null && throwBar != null)
-                    {
-                        throwGO.SetActive(true);
-                        
-                        var fillProp = throwBar.GetType().GetProperty("fillAmount");
-                        if (fillProp != null)
-                        {
-                            fillProp.SetValue(throwBar, progress);
-                        }
-                        
-                        var colorProp = throwBar.GetType().GetProperty("color");
-                        if (colorProp != null)
-                        {
-                            colorProp.SetValue(throwBar, Color.cyan);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Utils.LogError($"Error showing hold progress: {ex.Message}");
+                    var colorProp = guiManager.throwBar.GetType().GetProperty("color");
+                    if (colorProp != null) colorProp.SetValue(guiManager.throwBar, Color.cyan);
                 }
             }
         }
