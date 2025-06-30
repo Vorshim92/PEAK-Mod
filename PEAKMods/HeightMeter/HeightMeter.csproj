@@ -28,49 +28,29 @@
       <Private>False</Private>
     </Reference>
     
-    <!-- Photon Unity Networking -->
-    <Reference Include="PhotonUnityNetworking">
-      <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    
-    <!-- Unity TextMeshPro -->
-    <Reference Include="Unity.TextMeshPro">
-      <HintPath>$(GameManaged)\Unity.TextMeshPro.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    
-    <!-- Unity Input System -->
-    <Reference Include="Unity.InputSystem">
-      <HintPath>$(GameManaged)\Unity.InputSystem.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    
-    <!-- Additional Unity Modules -->
-    <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    
-    <Reference Include="UnityEngine.UI">
-      <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-
-        <!-- === AGGIUNGI QUESTA RIGA === -->
-    <Reference Include="Zorro.Core.Runtime">
-      <!-- Assicurati che il percorso sia corretto per la tua installazione! -->
-      <HintPath>$(GameManaged)\Zorro.Core.Runtime.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-
     <Reference Include="PhotonRealtime">
       <HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath>
-      <Private>false</Private>
     </Reference>
     <Reference Include="PhotonUnityNetworking">
       <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
-      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(GameManaged)\Unity.TextMeshPro.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(GameManaged)\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(GameManaged)\UnityEngine.UIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(GameManaged)\UnityEngine.InputLegacyModule.dll</HintPath>
     </Reference>
 
   </ItemGroup>

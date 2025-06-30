@@ -8,6 +8,9 @@ namespace HeightMeterMod
     public class Plugin : BaseUnityPlugin
     {
         internal static Plugin Instance { get; private set; }
+        
+        // Manager GameObject
+        private GameObject heightMeterManager;
 
         private void Awake()
         {
@@ -38,11 +41,47 @@ namespace HeightMeterMod
                 Utils.LogError(ex.StackTrace);
             }
         }
+        
+        // Called by patch when run starts
+        internal void OnRunStart()
+        {
+            if (!PluginConfig.isPluginEnable.Value) return;
+            
+            Utils.LogInfo("Run started, creating HeightMeter manager");
+            
+            if (heightMeterManager != null)
+            {
+                Destroy(heightMeterManager);
+            }
+            
+            heightMeterManager = new GameObject("HeightMeterManager");
+            heightMeterManager.AddComponent<HeightMeterManager>();
+        }
+        
+        // Called by patch when run ends
+        internal void OnRunEnd()
+        {
+            if (heightMeterManager != null)
+            {
+                Utils.LogInfo("Run ended, cleaning up HeightMeter");
+                Destroy(heightMeterManager);
+                heightMeterManager = null;
+            }
+        }
 
         private void OnDestroy()
         {
             Utils.LogInfo("Plugin is being destroyed");
             PatchManager.UnpatchAll();
+        }
+        
+        // Debug logging helper
+        internal static void LogDebug(string message)
+        {
+            if (PluginConfig.debugMode?.Value ?? false)
+            {
+                Utils.LogDebug($"[DEBUG] {message}");
+            }
         }
     }
 }
