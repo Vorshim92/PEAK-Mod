@@ -13,7 +13,15 @@ namespace HeightMeterMod
 
         public static void PatchAll()
         {
-            // LoadPatch(typeof(Patches.BackpackPatches), "Backpack");
+            Utils.LogInfo("Applying all Harmony patches...");
+            
+            // Carica le patch per la gestione della run (inizio/fine)
+            LoadPatch(typeof(Patches.RunManagerPatches), "RunManagerPatches");
+
+            // Carica le patch per i progressi sulla montagna
+            LoadPatch(typeof(Patches.MountainProgressPatches), "MountainProgressPatches");
+            
+            Utils.LogInfo("All Harmony patches applied.");
 
         }
 

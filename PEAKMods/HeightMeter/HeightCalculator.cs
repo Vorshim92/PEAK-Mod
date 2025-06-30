@@ -20,7 +20,7 @@ namespace HeightMeterMod
         public void Initialize()
         {
             // Try to get progress points from the game
-            var progressHandler = MountainProgressHandler.Instance;
+            var progressHandler = FindAnyObjectByType<MountainProgressHandler>();
             
             if (progressHandler?.progressPoints != null && progressHandler.progressPoints.Length > 0)
             {
