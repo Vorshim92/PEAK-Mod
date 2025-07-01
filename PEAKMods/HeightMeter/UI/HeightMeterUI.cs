@@ -257,10 +257,14 @@ namespace HeightMeterMod
             var indicatorObj = new GameObject("PlayerIndicator");
             indicatorObj.transform.SetParent(uiRoot.transform, false);
             
+            // IMPORTANTE: Aggiungi RectTransform PRIMA del tuo componente
+            indicatorObj.AddComponent<RectTransform>();
+            
             var indicator = indicatorObj.AddComponent<PlayerHeightIndicator>();
             indicator.Setup(mainFont, barRect, LEFT_OFFSET, BOTTOM_OFFSET, BAR_HEIGHT);
             
             return indicator;
+
         }
         
         public void SetVisible(bool visible)
