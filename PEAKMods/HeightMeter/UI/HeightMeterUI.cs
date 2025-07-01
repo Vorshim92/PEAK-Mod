@@ -202,23 +202,32 @@ namespace HeightMeterMod
         public void AddPlayerIndicator(Character character)
         {
             if (playerIndicators.ContainsKey(character))
+            {
+                Utils.LogWarning($"Indicator for {character.refs.view.Owner.NickName} already exists. Ignoring.");
                 return;
-                
+            }
+            
+            // Aggiungi un log qui
+            Utils.LogInfo($"UI: Creating indicator for {character.refs.view.Owner.NickName}");
+                    
             // Get from pool or create new
             PlayerHeightIndicator indicator;
             if (indicatorPool.Count > 0)
             {
                 indicator = indicatorPool.Dequeue();
                 indicator.gameObject.SetActive(true);
+                Utils.LogInfo("Reusing indicator from pool.");
             }
             else
             {
                 indicator = CreatePlayerIndicator();
+                Utils.LogInfo("Creating new indicator.");
             }
             
             indicator.Initialize(character);
             playerIndicators[character] = indicator;
         }
+
         
         public void RemovePlayerIndicator(Character character)
         {

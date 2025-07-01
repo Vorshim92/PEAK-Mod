@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Photon.Pun;
+using System.Linq;
 
 namespace HeightMeterMod
 {
@@ -12,24 +13,34 @@ namespace HeightMeterMod
         public event Action<Character> OnPlayerRemoved;
         
         // Tracked characters
-        private Dictionary<Photon.Realtime.Player, Character> trackedPlayers = new Dictionary<Photon.Realtime.Player, Character>();
+                private Dictionary<Photon.Realtime.Player, Character> trackedPlayers = new Dictionary<Photon.Realtime.Player, Character>();
         
         public void Initialize()
         {
-            // Track all existing characters
-            foreach (var character in Character.AllCharacters)
+            trackedPlayers.Clear();
+            Utils.LogInfo("PlayerTracker initializing: searching for existing characters...");
+            
+            foreach (var character in Character.AllCharacters.Where(c => c != null))
             {
                 AddCharacter(character);
             }
+
+            if (Character.localCharacter != null && !trackedPlayers.ContainsValue(Character.localCharacter))
+            {
+                Utils.LogInfo("Local character found during initialization.");
+                AddCharacter(Character.localCharacter);
+            }
             
-            Utils.LogInfo($"Started tracking {trackedPlayers.Count} players");
+            Utils.LogInfo($"PlayerTracker finished initialization. Tracked {trackedPlayers.Count} players.");
         }
+
+
         
         public IEnumerable<Character> GetTrackedCharacters()
         {
             // Clean up any null references
             List<Photon.Realtime.Player> toRemove = new List<Photon.Realtime.Player>();
-            
+
             foreach (var kvp in trackedPlayers)
             {
                 if (kvp.Value == null || kvp.Value.refs == null)
@@ -37,12 +48,12 @@ namespace HeightMeterMod
                     toRemove.Add(kvp.Key);
                 }
             }
-            
+
             foreach (var player in toRemove)
             {
                 trackedPlayers.Remove(player);
             }
-            
+
             return trackedPlayers.Values;
         }
         
@@ -55,6 +66,8 @@ namespace HeightMeterMod
             
             if (!trackedPlayers.ContainsKey(photonPlayer))
             {
+                // Aggiungi il log qui, come suggerito prima.
+                Utils.LogInfo($"Adding character to tracker: {photonPlayer.NickName}"); 
                 trackedPlayers[photonPlayer] = character;
                 OnPlayerAdded?.Invoke(character);
             }

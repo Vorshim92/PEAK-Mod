@@ -14,16 +14,5 @@ namespace HeightMeterMod.Patches
                 Plugin.Instance?.OnRunStart();
             }
         }
-        
-        [HarmonyPatch(typeof(RunManager), "EndRun")]
-        public static class EndRunPatch
-        {
-            [HarmonyPostfix]
-            private static void Postfix()
-            {
-                Plugin.LogDebug("RunManager.EndRun called");
-                Plugin.Instance?.OnRunEnd();
-            }
-        }
     }
 }

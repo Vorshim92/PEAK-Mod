@@ -30,6 +30,13 @@ namespace HeightMeterMod
         private float currentPosition;
         private float smoothSpeed = 5f;
         
+        private void Awake()
+        {
+            // Awake viene chiamato da Unity subito dopo AddComponent.
+            // È il posto perfetto per ottenere i riferimenti ai componenti sullo stesso GameObject.
+            rectTransform = GetComponent<RectTransform>();
+        }
+        
         public void Setup(TMP_FontAsset gameFont, RectTransform altitudeBar, float left, float bottom, float height)
         {
             font = gameFont;
@@ -43,7 +50,6 @@ namespace HeightMeterMod
         
         private void CreateUIElements()
         {
-            rectTransform = GetComponent<RectTransform>();
             rectTransform.anchorMin = new Vector2(0f, 0f);
             rectTransform.anchorMax = new Vector2(0f, 0f);
             rectTransform.pivot = new Vector2(0f, 0.5f);

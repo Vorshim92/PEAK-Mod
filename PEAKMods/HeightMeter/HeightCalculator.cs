@@ -17,10 +17,10 @@ namespace HeightMeterMod
         
         public bool IsInitialized { get; private set; }
         
-        public void Initialize()
+        public bool Initialize()
         {
             // Try to get progress points from the game
-            var progressHandler = FindAnyObjectByType<MountainProgressHandler>();
+            var progressHandler = Object.FindAnyObjectByType<MountainProgressHandler>();
             
             if (progressHandler?.progressPoints != null && progressHandler.progressPoints.Length > 0)
             {
@@ -31,24 +31,22 @@ namespace HeightMeterMod
                 peakHeight = progressPoints.Last().transform.position.z;
                 
                 // Calculate conversion factor
-                // Assuming the total height is approximately 1920 meters
                 float totalUnits = peakHeight - baseHeight;
-                metersPerUnit = 1920f / totalUnits;
+                if (totalUnits > 0) // Evita divisione per zero
+                {
+                    metersPerUnit = 1920f / totalUnits;
+                }
                 
                 Utils.LogInfo($"Height bounds initialized: Base={baseHeight:F2}, Peak={peakHeight:F2}, MetersPerUnit={metersPerUnit:F2}");
+                IsInitialized = true; // Imposta lo stato su inizializzato
+                return true; // Successo!
             }
             else
             {
-                Utils.LogWarning("Could not find progress points, using defaults");
-                
-                // Try to estimate from current player position
-                if (Character.localCharacter != null)
-                {
-                    baseHeight = Character.localCharacter.Center.z;
-                }
+                Utils.LogWarning("Could not find progress points. Waiting for valid game state...");
+                IsInitialized = false; // Non inizializzato
+                return false; // Fallimento!
             }
-            
-            IsInitialized = true;
         }
         
         // Get normalized height (0-1) for UI positioning
@@ -72,8 +70,8 @@ namespace HeightMeterMod
             if (progressPoints == null || progressPoints.Length == 0)
                 return null;
                 
-            // Find the next unreached checkpoint
-            foreach (var point in progressPoints)
+            // Trova il prossimo checkpoint non raggiunto E VALIDO
+            foreach (var point in progressPoints.Where(p => p != null && p.transform != null))
             {
                 if (!point.Reached && point.transform.position.z > currentZ)
                 {
@@ -86,6 +84,7 @@ namespace HeightMeterMod
                     };
                 }
             }
+
             
             // Player is above all checkpoints
             if (currentZ < peakHeight)
@@ -107,14 +106,18 @@ namespace HeightMeterMod
         {
             if (progressPoints == null) return new ProgressMarker[0];
             
-            return progressPoints.Select(p => new ProgressMarker
-            {
-                Name = p.title,
-                NormalizedHeight = GetNormalizedHeight(p.transform.position.z),
-                HeightInMeters = GetHeightInMeters(p.transform.position.z),
-                IsReached = p.Reached
-            }).ToArray();
+            // Aggiungi un filtro .Where() per ignorare i punti con transform nullo
+            return progressPoints
+                .Where(p => p != null && p.transform != null) // <-- QUESTA È LA CORREZIONE
+                .Select(p => new ProgressMarker
+                {
+                    Name = p.title,
+                    NormalizedHeight = GetNormalizedHeight(p.transform.position.z),
+                    HeightInMeters = GetHeightInMeters(p.transform.position.z),
+                    IsReached = p.Reached
+                }).ToArray();
         }
+
         
         // Helper classes for data
         public class CheckpointInfo
