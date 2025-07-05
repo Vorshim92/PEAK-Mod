@@ -18,20 +18,40 @@ namespace HeightMeterMod
         public void Initialize()
         {
             trackedPlayers.Clear();
-            Utils.LogInfo("PlayerTracker initializing: searching for existing characters...");
+            Utils.LogInfo("PlayerTracker initializing...");
             
+            // 1. Traccia tutti i character esistenti
             foreach (var character in Character.AllCharacters.Where(c => c != null))
             {
                 AddCharacter(character);
             }
-
-            if (Character.localCharacter != null && !trackedPlayers.ContainsValue(Character.localCharacter))
+            
+            // 2. Per i player Photon senza character, registra che li stiamo aspettando
+            foreach (var photonPlayer in PhotonNetwork.PlayerList)
             {
-                Utils.LogInfo("Local character found during initialization.");
-                AddCharacter(Character.localCharacter);
+                if (!trackedPlayers.ContainsKey(photonPlayer))
+                {
+                    Utils.LogInfo($"Waiting for character spawn: {photonPlayer.NickName}");
+                    // Il character verrà aggiunto quando spawna tramite Character.AllCharacters
+                }
             }
             
-            Utils.LogInfo($"PlayerTracker finished initialization. Tracked {trackedPlayers.Count} players.");
+            Utils.LogInfo($"Initial tracking complete: {trackedPlayers.Count}/{PhotonNetwork.PlayerList.Length} players");
+        }
+
+        private void Update()
+        {
+            // Check veloce solo per character non tracciati
+            if (trackedPlayers.Count < PhotonNetwork.PlayerList.Length)
+            {
+                foreach (var character in Character.AllCharacters)
+                {
+                    if (character?.refs?.view?.Owner != null && !trackedPlayers.ContainsKey(character.refs.view.Owner))
+                    {
+                        AddCharacter(character);
+                    }
+                }
+            }
         }
 
 
@@ -109,7 +129,7 @@ namespace HeightMeterMod
         private System.Collections.IEnumerator WaitForCharacterSpawn(Photon.Realtime.Player photonPlayer)
         {
             // Wait up to 5 seconds for character to spawn
-            float timeout = 5f;
+            float timeout = 30f;
             float elapsed = 0f;
             
             while (elapsed < timeout)

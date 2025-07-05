@@ -57,18 +57,18 @@ namespace HeightMeterMod
 
                 // 2. Inizializza la UI
                 ui.Initialize(heightCalculator);
-                Utils.LogInfo("Step 2: HeightMeterUI initialized.");
+                // Utils.LogInfo("Step 2: HeightMeterUI initialized.");
 
                 // 3. Inizializza il PlayerTracker
                 playerTracker.Initialize();
-                Utils.LogInfo("Step 3: PlayerTracker initialized.");
+                // Utils.LogInfo("Step 3: PlayerTracker initialized.");
                 
                 // 4. Ciclo di sicurezza per aggiungere giocatori già tracciati
-                foreach (var character in playerTracker.GetTrackedCharacters())
-                {
-                    OnPlayerAdded(character);
-                }
-                Utils.LogInfo("Step 4: Ensured all tracked players are added to UI.");
+                // foreach (var character in playerTracker.GetTrackedCharacters())
+                // {
+                //     OnPlayerAdded(character);
+                // }
+                // Utils.LogInfo("Step 4: Ensured all tracked players are added to UI.");
 
                 isFullyInitialized = true;
                 Utils.LogInfo("SUCCESS: HeightMeter is now fully active.");

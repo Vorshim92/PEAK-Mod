@@ -16,7 +16,7 @@ namespace HeightMeterMod
         private Image markerImage;
         
         // References
-        private Character character;
+        public Character character;
         private RectTransform barRect;
         private TMP_FontAsset font;
         
@@ -30,23 +30,29 @@ namespace HeightMeterMod
         private float currentPosition;
         private float smoothSpeed = 5f;
         
+        private float horizontalOffset = 0f;
+        private float targetHorizontalOffset = 0f;
+
+        public float CurrentPosition => currentPosition; // Proprietà pubblica per HeightMeterUI
+
+        
         public void Setup(TMP_FontAsset gameFont, RectTransform altitudeBar, float left, float bottom, float height)
         {
             // Debug logs
             Debug.Log($"Transform type: {transform.GetType().Name}");
             Debug.Log($"Has RectTransform: {GetComponent<RectTransform>() != null}");
-            
+
             if (rectTransform == null)
                 rectTransform = GetComponent<RectTransform>();
-                
+
             Debug.Log($"RectTransform after get: {rectTransform != null}");
-            
+
             font = gameFont;
             barRect = altitudeBar;
             leftOffset = left;
             bottomOffset = bottom;
             barHeight = height;
-            
+
             CreateUIElements();
         }
         
@@ -81,7 +87,7 @@ namespace HeightMeterMod
             
             // Add background to label
             var bgImage = label.AddComponent<Image>();
-            bgImage.color = new Color(0f, 0f, 0f, 0.5f);
+            bgImage.color = new Color(0f, 0f, 0f, 0.0f);
             
             // Create name text
             var nameObj = new GameObject("Name");
@@ -89,8 +95,9 @@ namespace HeightMeterMod
             
             nameText = nameObj.AddComponent<TextMeshProUGUI>();
             nameText.font = font;
-            nameText.fontSize = 16f;
+            nameText.fontSize = 18f;
             nameText.alignment = TextAlignmentOptions.Left;
+
             
             var nameRect = nameObj.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0f, 0.5f);
@@ -104,10 +111,10 @@ namespace HeightMeterMod
             
             heightText = heightObj.AddComponent<TextMeshProUGUI>();
             heightText.font = font;
-            heightText.fontSize = 20f;
+            heightText.fontSize = 18f;
             heightText.fontStyle = FontStyles.Bold;
             heightText.alignment = TextAlignmentOptions.Left;
-            
+
             var heightRect = heightObj.GetComponent<RectTransform>();
             heightRect.anchorMin = new Vector2(0f, 0.5f);
             heightRect.anchorMax = new Vector2(0f, 0.5f);
@@ -134,36 +141,51 @@ namespace HeightMeterMod
         public void Initialize(Character targetCharacter)
         {
             character = targetCharacter;
-            
-            // Set player color
+    
             var playerColor = character.refs.customization.PlayerColor;
-            markerImage.color = playerColor;
-            nameText.color = playerColor;
-            heightText.color = playerColor;
             
-            // Set player name
+           // Forza una luminosità minima
+            Color.RGBToHSV(playerColor, out float h, out float s, out float v);
+            v = Mathf.Max(v, 0.9f); // Minimo 90% luminosità
+            s = Mathf.Min(s, 0.7f); // Massimo 70% saturazione
+            
+            var brightColor = Color.HSVToRGB(h, s, v);
+            
+            markerImage.color = playerColor; // Marker colore originale
+            nameText.color = brightColor;     // Testo più luminoso
+            
+            // RIMUOVI TUTTI GLI OUTLINE!
+            // Niente outlineColor o outlineWidth
+            
             nameText.text = character.refs.view.Owner.NickName;
             
-            // Make local player stand out
             if (character.IsLocal)
             {
                 var rect = marker.GetComponent<RectTransform>();
                 rect.sizeDelta = new Vector2(20f, 6f);
                 nameText.fontStyle = FontStyles.Bold;
+                // NO outline extra per il local player
             }
         }
         
         public void UpdatePosition(float normalizedHeight, float heightInMeters)
         {
-            // Update height text
-            heightText.text = $"{heightInMeters:F0}m";
+            // Formato come ProgressMap: "NomePlayer 123m" tutto su una riga
+            string displayText = $"{character.refs.view.Owner.NickName} {heightInMeters:F0}m";
+            nameText.text = displayText;
             
-            // Set target position for smooth movement
+            // Nascondi heightText visto che ora è tutto in nameText
+            heightText.gameObject.SetActive(false);
+            
             targetPosition = normalizedHeight;
-            
-            // Update label size based on content
             UpdateLabelSize();
         }
+        
+        public void SetHorizontalOffset(float offset)
+        {
+            targetHorizontalOffset = offset;
+        }
+
         
         public void UpdateNextCheckpoint(HeightCalculator.CheckpointInfo checkpoint)
         {
@@ -176,31 +198,41 @@ namespace HeightMeterMod
             {
                 checkpointText.gameObject.SetActive(false);
             }
-            
+
             UpdateLabelSize();
         }
-        
+
         private void Update()
         {
             // Smooth position interpolation
             currentPosition = Mathf.Lerp(currentPosition, targetPosition, Time.deltaTime * smoothSpeed);
-            
+
+            // Nuovo: movimento orizzontale
+            horizontalOffset = Mathf.Lerp(horizontalOffset, targetHorizontalOffset, Time.deltaTime * smoothSpeed);
+
             // Update position
             float yPosition = bottomOffset + (barHeight * currentPosition);
-            rectTransform.anchoredPosition = new Vector2(leftOffset, yPosition);
-            
+            float xPosition = leftOffset + horizontalOffset;
+            rectTransform.anchoredPosition = new Vector2(xPosition, yPosition);
+
             // Fade out when at extremes
             float alpha = 1f;
             if (currentPosition < 0.05f || currentPosition > 0.95f)
             {
                 alpha = Mathf.InverseLerp(0f, 0.05f, Mathf.Min(currentPosition, 1f - currentPosition));
             }
-            
+
             var canvasGroup = GetComponent<CanvasGroup>();
             if (canvasGroup == null)
                 canvasGroup = gameObject.AddComponent<CanvasGroup>();
-            
+
             canvasGroup.alpha = alpha;
+            
+            // Debug per vedere l'alpha
+            if (character.IsLocal)
+            {
+                Utils.LogDebug($"Player alpha: {alpha}, position: {currentPosition}");
+            }
         }
         
         private void UpdateLabelSize()

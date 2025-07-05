@@ -50,7 +50,7 @@ namespace HeightMeterMod
                 showNextCheckpoint = config.Bind(
                     "UI",
                     "ShowNextCheckpoint",
-                    true,
+                    false,
                     "Show distance to next checkpoint"
                 );
                 
