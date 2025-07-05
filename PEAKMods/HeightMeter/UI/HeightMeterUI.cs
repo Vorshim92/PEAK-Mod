@@ -34,6 +34,7 @@ namespace HeightMeterMod
         private const float BAR_HEIGHT = 400f;
         private const float LEFT_OFFSET = 80f;
         private const float STAMINA_BAR_TOP_MARGIN = 100f;
+        private const float ROPE_SPOOL_OFFSET = 120f;
 
         
         // References
@@ -134,7 +135,16 @@ namespace HeightMeterMod
             
             // Mantieni la X originale (LEFT_OFFSET)
             float targetX = LEFT_OFFSET;
-            
+
+            if (Character.localCharacter?.data.currentItem != null)
+            {
+                RopeSpool ropeSpool;
+                if (Character.localCharacter.data.currentItem.TryGetComponent<RopeSpool>(out ropeSpool))
+                {
+                    targetX = LEFT_OFFSET + ROPE_SPOOL_OFFSET; // Sposta a destra
+                }
+            }
+
             // Calcola la Y relativa alla stamina bar
             RectTransform staminaRect = staminaBar.staminaBarOutline;
             float staminaY = staminaRect.anchoredPosition.y;
