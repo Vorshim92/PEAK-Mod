@@ -11,12 +11,12 @@ namespace HeightMeterMod
         private GameObject marker;
         private GameObject label;
         private TextMeshProUGUI nameText;
-        private TextMeshProUGUI heightText;
         private TextMeshProUGUI checkpointText;
         private Image markerImage;
+        private CanvasGroup canvasGroup;
         
         // References
-        public Character character;
+        public Character character { get; private set; }
         private RectTransform barRect;
         private TMP_FontAsset font;
         
@@ -25,39 +25,82 @@ namespace HeightMeterMod
         private float bottomOffset;
         private float barHeight;
         
-        // Smoothing
-        private float targetPosition;
-        private float currentPosition;
-        private float smoothSpeed = 5f;
+        // Enhanced positioning system
+        private Vector2 basePosition;
+        private Vector2 targetOffset;
+        private Vector2 currentOffset;
+        private float targetNormalizedHeight;
+        private float currentNormalizedHeight;
         
-        private float horizontalOffset = 0f;
-        private float targetHorizontalOffset = 0f;
-
-        public float CurrentPosition => currentPosition; // Proprietà pubblica per HeightMeterUI
-
+        // Smoothing
+        private float positionSmoothSpeed = 5f;
+        private float offsetSmoothSpeed = 8f;
+        
+        // Visibility
+        private float targetAlpha = 1f;
+        private float currentAlpha = 1f;
+        
+        // State
+        private bool isSetup = false;
+        
+        public float CurrentPosition => currentNormalizedHeight;
+        
+        private void Awake()
+        {
+            // FIX: Ottieni i componenti in Awake per essere sicuri che esistano
+            rectTransform = GetComponent<RectTransform>();
+            if (rectTransform == null)
+            {
+                rectTransform = gameObject.AddComponent<RectTransform>();
+            }
+            
+            canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
         
         public void Setup(TMP_FontAsset gameFont, RectTransform altitudeBar, float left, float bottom, float height)
         {
-            // Debug logs
-            Debug.Log($"Transform type: {transform.GetType().Name}");
-            Debug.Log($"Has RectTransform: {GetComponent<RectTransform>() != null}");
-
-            if (rectTransform == null)
-                rectTransform = GetComponent<RectTransform>();
-
-            Debug.Log($"RectTransform after get: {rectTransform != null}");
-
+            // FIX: Validazione parametri
+            if (gameFont == null || altitudeBar == null)
+            {
+                Utils.LogError($"PlayerHeightIndicator.Setup: Invalid parameters - font:{gameFont != null}, bar:{altitudeBar != null}");
+                return;
+            }
+            
             font = gameFont;
             barRect = altitudeBar;
             leftOffset = left;
             bottomOffset = bottom;
             barHeight = height;
-
+            
+            // FIX: Assicurati che rectTransform esista
+            if (rectTransform == null)
+            {
+                rectTransform = GetComponent<RectTransform>();
+                if (rectTransform == null)
+                {
+                    Utils.LogError("PlayerHeightIndicator.Setup: RectTransform is null!");
+                    return;
+                }
+            }
+            
             CreateUIElements();
+            isSetup = true;
         }
         
         private void CreateUIElements()
         {
+            // FIX: Validazione prima di procedere
+            if (rectTransform == null)
+            {
+                Utils.LogError("CreateUIElements: rectTransform is null!");
+                return;
+            }
+            
+            // Configura il RectTransform principale
             rectTransform.anchorMin = new Vector2(0f, 0f);
             rectTransform.anchorMax = new Vector2(0f, 0f);
             rectTransform.pivot = new Vector2(0f, 0.5f);
@@ -71,7 +114,9 @@ namespace HeightMeterMod
             markerRect.anchorMax = new Vector2(0f, 0.5f);
             markerRect.pivot = new Vector2(0.5f, 0.5f);
             markerRect.sizeDelta = new Vector2(16f, 4f);
-            markerRect.anchoredPosition = new Vector2(0f, 0f);
+            float barWidth = barRect.sizeDelta.x;
+            markerRect.anchoredPosition = new Vector2(barWidth / 2f, 0f);
+
             
             markerImage = marker.AddComponent<Image>();
             
@@ -85,169 +130,202 @@ namespace HeightMeterMod
             labelRect.pivot = new Vector2(0f, 0.5f);
             labelRect.anchoredPosition = new Vector2(25f, 0f);
             
-            // Add background to label
+            // Semi-transparent background
             var bgImage = label.AddComponent<Image>();
-            bgImage.color = new Color(0f, 0f, 0f, 0.0f);
+            bgImage.color = new Color(0f, 0f, 0f, 0.2f);
             
             // Create name text
             var nameObj = new GameObject("Name");
             nameObj.transform.SetParent(label.transform, false);
             
             nameText = nameObj.AddComponent<TextMeshProUGUI>();
-            nameText.font = font;
-            nameText.fontSize = 18f;
+            if (font != null) nameText.font = font;
+            nameText.fontSize = 16f;
+            nameText.fontStyle = FontStyles.Bold;
             nameText.alignment = TextAlignmentOptions.Left;
-
+            nameText.raycastTarget = false; // Performance
             
             var nameRect = nameObj.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0f, 0.5f);
             nameRect.anchorMax = new Vector2(0f, 0.5f);
             nameRect.pivot = new Vector2(0f, 0.5f);
-            nameRect.anchoredPosition = new Vector2(5f, 8f);
-            
-            // Create height text
-            var heightObj = new GameObject("Height");
-            heightObj.transform.SetParent(label.transform, false);
-            
-            heightText = heightObj.AddComponent<TextMeshProUGUI>();
-            heightText.font = font;
-            heightText.fontSize = 18f;
-            heightText.fontStyle = FontStyles.Bold;
-            heightText.alignment = TextAlignmentOptions.Left;
-
-            var heightRect = heightObj.GetComponent<RectTransform>();
-            heightRect.anchorMin = new Vector2(0f, 0.5f);
-            heightRect.anchorMax = new Vector2(0f, 0.5f);
-            heightRect.pivot = new Vector2(0f, 0.5f);
-            heightRect.anchoredPosition = new Vector2(5f, -10f);
+            nameRect.anchoredPosition = new Vector2(5f, 0f);
             
             // Create checkpoint text
             var checkpointObj = new GameObject("Checkpoint");
             checkpointObj.transform.SetParent(label.transform, false);
             
             checkpointText = checkpointObj.AddComponent<TextMeshProUGUI>();
-            checkpointText.font = font;
+            if (font != null) checkpointText.font = font;
             checkpointText.fontSize = 12f;
             checkpointText.alignment = TextAlignmentOptions.Left;
             checkpointText.color = new Color(0.8f, 0.8f, 0.8f, 0.8f);
+            checkpointText.raycastTarget = false;
+            checkpointText.gameObject.SetActive(false);
             
             var checkpointRect = checkpointObj.GetComponent<RectTransform>();
             checkpointRect.anchorMin = new Vector2(0f, 0.5f);
             checkpointRect.anchorMax = new Vector2(0f, 0.5f);
             checkpointRect.pivot = new Vector2(0f, 0.5f);
-            checkpointRect.anchoredPosition = new Vector2(5f, -28f);
+            checkpointRect.anchoredPosition = new Vector2(5f, -20f);
+            
+            // Update label size
+            labelRect.sizeDelta = new Vector2(150f, 40f); // Fixed size for now
         }
         
         public void Initialize(Character targetCharacter)
         {
+            if (!isSetup)
+            {
+                Utils.LogError("PlayerHeightIndicator.Initialize: Not setup yet!");
+                return;
+            }
+            
+            if (targetCharacter == null)
+            {
+                Utils.LogError("PlayerHeightIndicator.Initialize: targetCharacter is null!");
+                return;
+            }
+            
             character = targetCharacter;
-    
+            
+            // FIX: Validazione completa prima di accedere ai membri
+            if (character.refs == null || 
+                character.refs.customization == null || 
+                character.refs.view == null || 
+                character.refs.view.Owner == null)
+            {
+                Utils.LogError("PlayerHeightIndicator.Initialize: Character references are incomplete!");
+                return;
+            }
+            
+            // Get player color
             var playerColor = character.refs.customization.PlayerColor;
             
-           // Forza una luminosità minima
+            // Ensure minimum brightness
             Color.RGBToHSV(playerColor, out float h, out float s, out float v);
-            v = Mathf.Max(v, 0.9f); // Minimo 90% luminosità
-            s = Mathf.Min(s, 0.7f); // Massimo 70% saturazione
+            v = Mathf.Max(v, 0.8f);
+            s = Mathf.Min(s, 0.8f);
             
-            var brightColor = Color.HSVToRGB(h, s, v);
+            var adjustedColor = Color.HSVToRGB(h, s, v);
             
-            markerImage.color = playerColor; // Marker colore originale
-            nameText.color = brightColor;     // Testo più luminoso
+            if (markerImage != null) markerImage.color = playerColor;
+            if (nameText != null) nameText.color = adjustedColor;
             
-            // RIMUOVI TUTTI GLI OUTLINE!
-            // Niente outlineColor o outlineWidth
-            
-            nameText.text = character.refs.view.Owner.NickName;
-            
+            // Local player special treatment
             if (character.IsLocal)
             {
-                var rect = marker.GetComponent<RectTransform>();
-                rect.sizeDelta = new Vector2(20f, 6f);
-                nameText.fontStyle = FontStyles.Bold;
-                // NO outline extra per il local player
+                if (marker != null)
+                {
+                    var rect = marker.GetComponent<RectTransform>();
+                    if (rect != null) rect.sizeDelta = new Vector2(20f, 6f);
+                }
+                
+                if (nameText != null)
+                {
+                    nameText.fontSize = 18f;
+                    nameText.fontStyle = FontStyles.Bold;
+                }
             }
+            
+            // Show the indicator
+            Show();
         }
         
         public void UpdatePosition(float normalizedHeight, float heightInMeters)
         {
-            // Formato come ProgressMap: "NomePlayer 123m" tutto su una riga
-            string displayText = $"{character.refs.view.Owner.NickName} {heightInMeters:F0}m";
-            nameText.text = displayText;
+            if (!isSetup || nameText == null || character == null) return;
             
-            // Nascondi heightText visto che ora è tutto in nameText
-            heightText.gameObject.SetActive(false);
+            // Combined name + height display
+            string playerName = character.refs.view.Owner.NickName;
+            nameText.text = $"{playerName} <size=14>{heightInMeters:F0}m</size>";
             
-            targetPosition = normalizedHeight;
-            UpdateLabelSize();
+            targetNormalizedHeight = normalizedHeight;
+            
+            // Update visibility based on position
+            UpdateVisibility();
         }
         
-        public void SetHorizontalOffset(float offset)
+        public void SetOffset(Vector2 offset)
         {
-            targetHorizontalOffset = offset;
+            targetOffset = offset;
         }
-
         
         public void UpdateNextCheckpoint(HeightCalculator.CheckpointInfo checkpoint)
         {
-            if (checkpoint != null)
+            if (!isSetup || checkpointText == null) return;
+            
+            if (checkpoint != null && PluginConfig.showNextCheckpoint.Value)
             {
-                checkpointText.text = $"Next: {checkpoint.Name} ({checkpoint.DistanceInMeters:F0}m)";
+                checkpointText.text = $"→ {checkpoint.Name} ({checkpoint.DistanceInMeters:F0}m)";
                 checkpointText.gameObject.SetActive(true);
             }
             else
             {
                 checkpointText.gameObject.SetActive(false);
             }
-
-            UpdateLabelSize();
         }
-
+        
         private void Update()
         {
-            // Smooth position interpolation
-            currentPosition = Mathf.Lerp(currentPosition, targetPosition, Time.deltaTime * smoothSpeed);
-
-            // Nuovo: movimento orizzontale
-            horizontalOffset = Mathf.Lerp(horizontalOffset, targetHorizontalOffset, Time.deltaTime * smoothSpeed);
-
-            // Update position
-            float yPosition = bottomOffset + (barHeight * currentPosition);
-            float xPosition = leftOffset + horizontalOffset;
-            rectTransform.anchoredPosition = new Vector2(xPosition, yPosition);
-
-            // Fade out when at extremes
-            float alpha = 1f;
-            if (currentPosition < 0.05f || currentPosition > 0.95f)
-            {
-                alpha = Mathf.InverseLerp(0f, 0.05f, Mathf.Min(currentPosition, 1f - currentPosition));
-            }
-
-            var canvasGroup = GetComponent<CanvasGroup>();
-            if (canvasGroup == null)
-                canvasGroup = gameObject.AddComponent<CanvasGroup>();
-
-            canvasGroup.alpha = alpha;
+            if (!isSetup || rectTransform == null) return;
             
-            // Debug per vedere l'alpha
-            if (character.IsLocal)
+            // Smooth height interpolation
+            currentNormalizedHeight = Mathf.Lerp(
+                currentNormalizedHeight, 
+                targetNormalizedHeight, 
+                Time.deltaTime * positionSmoothSpeed
+            );
+            
+            // Smooth offset interpolation
+            currentOffset = Vector2.Lerp(
+                currentOffset, 
+                targetOffset, 
+                Time.deltaTime * offsetSmoothSpeed
+            );
+            
+            // Calculate final position
+            float yPosition = bottomOffset + (barHeight * currentNormalizedHeight);
+            basePosition = new Vector2(leftOffset, yPosition);
+            
+            // Apply position with offset
+            rectTransform.anchoredPosition = basePosition + currentOffset;
+            
+            // Smooth alpha interpolation
+            currentAlpha = Mathf.Lerp(currentAlpha, targetAlpha, Time.deltaTime * 10f);
+            if (canvasGroup != null) canvasGroup.alpha = currentAlpha;
+            
+            // Scale effect when appearing/disappearing
+            float scale = Mathf.Lerp(0.8f, 1f, currentAlpha);
+            transform.localScale = Vector3.one * scale;
+        }
+        
+        private void UpdateVisibility()
+        {
+            // Fade out at extremes
+            if (targetNormalizedHeight < 0.05f || targetNormalizedHeight > 0.95f)
             {
-                Utils.LogDebug($"Player alpha: {alpha}, position: {currentPosition}");
+                float edgeFade = Mathf.InverseLerp(0f, 0.05f, 
+                    Mathf.Min(targetNormalizedHeight, 1f - targetNormalizedHeight));
+                targetAlpha = edgeFade;
+            }
+            else
+            {
+                targetAlpha = 1f;
+            }
+            
+            // Additional visibility rules
+            if (!character.IsLocal && PluginConfig.showOtherPlayers != null && !PluginConfig.showOtherPlayers.Value)
+            {
+                targetAlpha = 0f;
             }
         }
         
-        private void UpdateLabelSize()
-        {
-            // Calculate required size
-            float width = Mathf.Max(
-                nameText.GetPreferredValues().x,
-                heightText.GetPreferredValues().x,
-                checkpointText.gameObject.activeSelf ? checkpointText.GetPreferredValues().x : 0f
-            ) + 10f;
-            
-            float height = checkpointText.gameObject.activeSelf ? 60f : 45f;
-            
-            label.GetComponent<RectTransform>().sizeDelta = new Vector2(width, height);
-        }
+        // Public API
+        public void Show() => targetAlpha = 1f;
+        public void Hide() => targetAlpha = 0f;
+        public Vector2 GetWorldPosition() => transform.position;
+        public bool IsVisible() => currentAlpha > 0.1f;
         
         private void OnDestroy()
         {

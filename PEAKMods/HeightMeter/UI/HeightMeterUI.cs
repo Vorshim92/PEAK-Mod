@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -18,11 +19,11 @@ namespace HeightMeterMod
         private GameObject baseLabel;
         private RectTransform barRect;
         
+        // Systems
+        private PlayerClusteringSystem clusteringSystem;
+        
         // Player indicators
         private Dictionary<Character, PlayerHeightIndicator> playerIndicators = new Dictionary<Character, PlayerHeightIndicator>();
-        private Dictionary<int, List<PlayerHeightIndicator>> heightGroups = new Dictionary<int, List<PlayerHeightIndicator>>();
-        private float groupingThreshold = 0.02f; // 2% di differenza di altezza per considerarli "stesso livello"
-
         private Queue<PlayerHeightIndicator> indicatorPool = new Queue<PlayerHeightIndicator>();
         
         // Progress markers
@@ -32,59 +33,139 @@ namespace HeightMeterMod
         private const float BAR_WIDTH = 12f;
         private const float BAR_HEIGHT = 400f;
         private const float LEFT_OFFSET = 80f;
-        private const float BOTTOM_OFFSET = 140f;
+        private const float STAMINA_BAR_TOP_MARGIN = 100f;
 
+        
         // References
         private HeightCalculator heightCalculator;
         private TMP_FontAsset mainFont;
         private StaminaBar staminaBar;
-        private RectTransform staminaBarRect;
-        private bool hasInitializedPosition = false;
-        private float lastStaminaY = -1f;
-
-
+        
+        // State
+        private bool isInitialized = false;
         
         public bool IsVisible => uiRoot?.activeSelf ?? false;
-
+        
         public void Initialize(HeightCalculator calculator)
         {
             heightCalculator = calculator;
-
-            // Ottieni il riferimento alla StaminaBar una volta sola
-            if (GUIManager.instance != null && GUIManager.instance.bar != null)
+            
+            // Get StaminaBar reference
+            if (!TryGetStaminaBarReference()) 
             {
-                staminaBar = GUIManager.instance.bar;
-                staminaBarRect = staminaBar.fullBar; // Usa fullBar invece di staminaBarOutline
-                Utils.LogInfo("StaminaBar reference obtained from GUIManager");
+                Utils.LogError("Failed to get StaminaBar reference!");
+                return;
             }
-            else
-            {
-                Utils.LogWarning("Could not get StaminaBar reference from GUIManager");
-            }
-
+            
             // Find game font
             FindGameFont();
-
-            // Create UI
+            
+            // Create UI structure
             CreateUI();
-
-            // Create progress markers
+            
+            // Initialize systems
+            InitializeSystems();
+            
+            // Create progress markers if enabled
             if (PluginConfig.showProgressMarkers.Value)
             {
                 CreateProgressMarkers();
             }
+            
+            isInitialized = true;
+            Utils.LogInfo("HeightMeterUI initialized with enhanced systems");
+        }
+        
+        private bool TryGetStaminaBarReference()
+        {
+            if (GUIManager.instance?.bar != null)
+            {
+                staminaBar = GUIManager.instance.bar;
+                Utils.LogInfo("StaminaBar reference obtained successfully");
+                return true;
+            }
+            
+            // Fallback: try to find it
+            staminaBar = Object.FindAnyObjectByType<StaminaBar>();
+            if (staminaBar != null)
+            {
+                Utils.LogInfo("StaminaBar found via fallback method");
+                return true;
+            }
+            
+            Utils.LogWarning("Could not find StaminaBar reference");
+            return false;
+        }
+        
+        private void InitializeSystems()
+        {
+            // FIX 1: NON usare più anchoraggio alla fullBar, ma posizione relativa
+            // perché fullBar potrebbe non avere la posizione corretta
+            
+            // Initialize Clustering System FIRST (no dependencies)
+            clusteringSystem = gameObject.AddComponent<PlayerClusteringSystem>();
+            
+            var clusterConfig = new PlayerClusteringSystem.ClusterConfig
+            {
+                heightThreshold = 0.025f, // 2.5% threshold
+                horizontalSpacing = 100f,
+                verticalSpacing = 22f,
+                useSmartStacking = true,
+                spacingCurve = AnimationCurve.EaseInOut(0f, 0.8f, 1f, 1.2f)
+            };
+            
+            clusteringSystem.Initialize(clusterConfig);
+            
+            // Non inizializziamo più l'anchor system qui
+            // Lo gestiamo manualmente in Update per maggior controllo
+        }
+        
+        private void Update()
+        {
+            if (!isInitialized || staminaBar == null) return;
+            
+            // FIX 1: Posizionamento manuale più preciso
+            UpdateAltimeterPosition();
+        }
+        
+        private void UpdateAltimeterPosition()
+        {
+            if (barRect == null || staminaBar == null || staminaBar.staminaBarOutline == null) return;
+            
+            // Mantieni la X originale (LEFT_OFFSET)
+            float targetX = LEFT_OFFSET;
+            
+            // Calcola la Y relativa alla stamina bar
+            RectTransform staminaRect = staminaBar.staminaBarOutline;
+            float staminaY = staminaRect.anchoredPosition.y;
+            
+            // Aggiungi offset per extra bar se presente
+            float extraOffset = 0f;
+            if (staminaBar.extraBar != null && staminaBar.extraBar.gameObject.activeSelf)
+            {
+                extraOffset = staminaBar.extraBar.sizeDelta.y + 15f;
+            }
+            
+            // Posiziona la barra sopra la stamina bar
+           float targetY = staminaY + staminaRect.sizeDelta.y + extraOffset + STAMINA_BAR_TOP_MARGIN;
 
-            Utils.LogInfo("HeightMeterUI initialized");
+            // Smooth interpolation
+            Vector2 currentPos = barRect.anchoredPosition;
+            Vector2 targetPos = new Vector2(targetX, targetY);
             
-            
+            barRect.anchoredPosition = Vector2.Lerp(currentPos, targetPos, Time.deltaTime * 8f);
         }
         
         private void FindGameFont()
         {
-            // Try to find the game's font
             var fonts = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();
             mainFont = fonts.FirstOrDefault(f => f.faceInfo.familyName.Contains("Daruma")) 
                       ?? fonts.FirstOrDefault();
+                      
+            if (mainFont == null)
+            {
+                Utils.LogWarning("Could not find game font, using default");
+            }
         }
         
         private void CreateUI()
@@ -96,7 +177,7 @@ namespace HeightMeterMod
             // Create Canvas
             canvas = uiRoot.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100; // Make sure it's on top
+            canvas.sortingOrder = 100;
             
             var canvasScaler = uiRoot.AddComponent<CanvasScaler>();
             canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -104,130 +185,49 @@ namespace HeightMeterMod
             
             uiRoot.AddComponent<GraphicRaycaster>();
             
-            // Create altitude bar background
+            // Create altitude bar
             CreateAltitudeBar();
             
-            // Create labels
-            // CreateLabels();
-        }
-        
-        private void Update() 
-        {
-            if (staminaBarRect == null) return;
-    
-            // Posiziona la barra dell'altimetro relativa alla stamina bar
-            if (!hasInitializedPosition || ShouldUpdatePosition())
+            // Create labels if needed
+            if (PluginConfig.debugMode?.Value ?? false)
             {
-                UpdateBarPosition();
+                CreateDebugLabels();
             }
         }
-        
-        private bool ShouldUpdatePosition()
-        {
-            // Controlla se la stamina bar si è mossa significativamente
-            float currentStaminaY = staminaBarRect.anchoredPosition.y;
-            return Mathf.Abs(lastStaminaY - currentStaminaY) > 0.1f;
-        }
-
-        private void UpdateBarPosition()
-        {
-            if (staminaBar == null || staminaBarRect == null) return;
-    
-            // Debug per capire cosa sta succedendo
-            bool hasExtraBar = staminaBar.extraBar.gameObject.activeSelf;
-            Utils.LogDebug($"UpdateBarPosition - ExtraBar active: {hasExtraBar}");
-            
-            // Usa il fullBar invece di staminaBarOutline
-            RectTransform barToFollow = staminaBar.fullBar; // Prova questo
-            float staminaY = barToFollow.anchoredPosition.y;
-            float staminaHeight = barToFollow.rect.height;
-            
-            // Se c'è l'extra bar, aggiungi il suo offset
-            float extraOffset = 0f;
-            if (hasExtraBar)
-            {
-                // L'extra bar è posizionata sotto, quindi dobbiamo considerare la sua altezza
-                extraOffset = staminaBar.extraBar.sizeDelta.y + 10f; // Altezza extra bar + margine
-                Utils.LogDebug($"ExtraBar height: {staminaBar.extraBar.sizeDelta.y}");
-            }
-            
-            // Posiziona sopra tutto con margine
-            float targetY = staminaY + staminaHeight + extraOffset + 20f;
-            
-            Utils.LogDebug($"Target Y: {targetY}, Current Y: {barRect.anchoredPosition.y}");
-            
-            // Movimento smooth
-            float currentY = barRect.anchoredPosition.y;
-            float newY = Mathf.Lerp(currentY, targetY, Time.deltaTime * 8f);
-            barRect.anchoredPosition = new Vector2(LEFT_OFFSET, newY);
-            
-            lastStaminaY = staminaY;
-            hasInitializedPosition = true;
-        }
-
-
-        private void LateUpdate()
-        {
-            if (playerIndicators.Count <= 1) return; // Non serve se c'è solo 1 player
-            
-            // Raggruppa i player per altezza simile
-            heightGroups.Clear();
-            
-            foreach (var kvp in playerIndicators)
-            {
-                var indicator = kvp.Value;
-                int heightBucket = Mathf.RoundToInt(indicator.CurrentPosition / groupingThreshold);
-                
-                if (!heightGroups.ContainsKey(heightBucket))
-                    heightGroups[heightBucket] = new List<PlayerHeightIndicator>();
-                    
-                heightGroups[heightBucket].Add(indicator);
-            }
-            
-            // Sposta lateralmente i player allo stesso livello
-            foreach (var group in heightGroups.Values)
-            {
-                if (group.Count > 1)
-                {
-                    // Ordina per nome per consistenza
-                    group.Sort((a, b) => a.character.name.CompareTo(b.character.name));
-                    
-                    for (int i = 0; i < group.Count; i++)
-                    {
-                        // Calcola offset orizzontale
-                        float totalWidth = (group.Count - 1) * 120f; // 120 pixel tra ogni player
-                        float startX = -totalWidth / 2f;
-                        float offset = startX + (i * 120f);
-                        
-                        group[i].SetHorizontalOffset(offset);
-                    }
-                }
-                else if (group.Count == 1)
-                {
-                    group[0].SetHorizontalOffset(0f); // Reset al centro se da solo
-                }
-            }
-        }
-
-
         
         private void CreateAltitudeBar()
         {
             altitudeBar = new GameObject("AltitudeBar");
             altitudeBar.transform.SetParent(uiRoot.transform, false);
-
+            
             barRect = altitudeBar.AddComponent<RectTransform>();
+            
+            // Usa lo stesso sistema di ancoraggio della stamina bar
             barRect.anchorMin = new Vector2(0f, 0f);
             barRect.anchorMax = new Vector2(0f, 0f);
             barRect.pivot = new Vector2(0.5f, 0f);
-            barRect.anchoredPosition = new Vector2(LEFT_OFFSET, BOTTOM_OFFSET);
             barRect.sizeDelta = new Vector2(BAR_WIDTH, BAR_HEIGHT);
-
+            
+            // NON impostare una posizione iniziale fissa
+            // Lascia che UpdateAltimeterPosition la imposti correttamente
+            barRect.anchoredPosition = new Vector2(LEFT_OFFSET, -1000f); // Fuori schermo inizialmente
+            
+            // Bar background
             var barImage = altitudeBar.AddComponent<Image>();
             barImage.color = new Color(0.75f, 0.75f, 0.69f, 0.4f);
-
-            // Add gradient overlay
+            
+            // Add gradient overlay for visual appeal
             CreateGradientOverlay();
+            
+            // Forza un update immediato della posizione
+            StartCoroutine(ForceInitialPosition());
+        }
+        
+        private System.Collections.IEnumerator ForceInitialPosition()
+        {
+            // Aspetta un frame per essere sicuri che tutto sia inizializzato
+            yield return null;
+            UpdateAltimeterPosition();
         }
         
         private void CreateGradientOverlay()
@@ -242,37 +242,40 @@ namespace HeightMeterMod
             gradientRect.anchoredPosition = Vector2.zero;
             
             var gradient = gradientObj.AddComponent<Image>();
+            gradient.type = Image.Type.Filled;
+            gradient.fillMethod = Image.FillMethod.Vertical;
+            gradient.fillOrigin = (int)Image.OriginVertical.Bottom;
             gradient.color = new Color(1f, 1f, 1f, 0.2f);
         }
         
-        private void CreateLabels()
+        private void CreateDebugLabels()
         {
-            // Peak label
-            peakLabel = CreateLabel("PEAK", new Vector2(LEFT_OFFSET, BOTTOM_OFFSET + BAR_HEIGHT + 10f));
-            
-            // Base label
-            baseLabel = CreateLabel("BASE", new Vector2(LEFT_OFFSET, BOTTOM_OFFSET - 30f));
+            // I label sono già figli della barra tramite il parametro parent
+            peakLabel = CreateLabel("PEAK", new Vector2(0f, BAR_HEIGHT + 10f), altitudeBar.transform);
+            baseLabel = CreateLabel("BASE", new Vector2(0f, -30f), altitudeBar.transform);
         }
         
-        private GameObject CreateLabel(string text, Vector2 position)
+        private GameObject CreateLabel(string text, Vector2 localPosition, Transform parent)
         {
             var labelObj = new GameObject($"Label_{text}");
-            labelObj.transform.SetParent(uiRoot.transform, false);
+            labelObj.transform.SetParent(parent, false);
             
             var rectTransform = labelObj.AddComponent<RectTransform>();
-            rectTransform.anchorMin = new Vector2(0f, 0f);
-            rectTransform.anchorMax = new Vector2(0f, 0f);
+            rectTransform.anchorMin = new Vector2(0.5f, 0f);
+            rectTransform.anchorMax = new Vector2(0.5f, 0f);
             rectTransform.pivot = new Vector2(0.5f, 0.5f);
-            rectTransform.anchoredPosition = position;
+            rectTransform.anchoredPosition = localPosition;
             
             var textComponent = labelObj.AddComponent<TextMeshProUGUI>();
             textComponent.text = text;
             textComponent.font = mainFont;
-            textComponent.fontSize = 24f;
+            textComponent.fontSize = 20f;
             textComponent.color = new Color(1f, 1f, 1f, 0.6f);
             textComponent.alignment = TextAlignmentOptions.Center;
             
-            rectTransform.sizeDelta = textComponent.GetPreferredValues();
+            var fitter = labelObj.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             
             return labelObj;
         }
@@ -290,7 +293,7 @@ namespace HeightMeterMod
         private void CreateProgressMarker(HeightCalculator.ProgressMarker marker)
         {
             var markerObj = new GameObject($"Marker_{marker.Name}");
-            markerObj.transform.SetParent(altitudeBar.transform, false);
+            markerObj.transform.SetParent(altitudeBar.transform, false); // Figlio della barra!
             
             var markerRect = markerObj.AddComponent<RectTransform>();
             markerRect.anchorMin = new Vector2(0f, marker.NormalizedHeight);
@@ -299,9 +302,11 @@ namespace HeightMeterMod
             markerRect.anchoredPosition = Vector2.zero;
             
             var markerImage = markerObj.AddComponent<Image>();
-            markerImage.color = new Color(1f, 1f, 1f, 0.3f);
+            markerImage.color = marker.IsReached 
+                ? new Color(0.2f, 0.8f, 0.2f, 0.5f)  // Green for reached
+                : new Color(1f, 1f, 1f, 0.3f);       // White for unreached
             
-            // Add label
+            // Add label with better positioning
             var labelObj = new GameObject("Label");
             labelObj.transform.SetParent(markerObj.transform, false);
             
@@ -314,12 +319,15 @@ namespace HeightMeterMod
             var labelText = labelObj.AddComponent<TextMeshProUGUI>();
             labelText.text = $"{marker.Name} - {marker.HeightInMeters:F0}m";
             labelText.font = mainFont;
-            labelText.fontSize = 12f;
-            labelText.color = new Color(1f, 1f, 1f, 0.5f);
-            labelText.alignment = TextAlignmentOptions.Center;  // Centrato
-
+            labelText.fontSize = 11f;
+            labelText.color = marker.IsReached 
+                ? new Color(0.5f, 1f, 0.5f, 0.7f)
+                : new Color(1f, 1f, 1f, 0.5f);
+            labelText.alignment = TextAlignmentOptions.Left;
             
-            labelRect.sizeDelta = labelText.GetPreferredValues();
+            var fitter = labelObj.AddComponent<ContentSizeFitter>();
+            fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             
             progressMarkers.Add(markerObj);
         }
@@ -328,39 +336,47 @@ namespace HeightMeterMod
         {
             if (playerIndicators.ContainsKey(character))
             {
-                Utils.LogWarning($"Indicator for {character.refs.view.Owner.NickName} already exists. Ignoring.");
+                Utils.LogWarning($"Indicator for {character.refs.view.Owner.NickName} already exists");
                 return;
             }
             
-            // Aggiungi un log qui
-            Utils.LogInfo($"UI: Creating indicator for {character.refs.view.Owner.NickName}");
-                    
+            Utils.LogInfo($"Creating indicator for {character.refs.view.Owner.NickName}");
+            
             // Get from pool or create new
             PlayerHeightIndicator indicator;
             if (indicatorPool.Count > 0)
             {
                 indicator = indicatorPool.Dequeue();
                 indicator.gameObject.SetActive(true);
-                Utils.LogInfo("Reusing indicator from pool.");
             }
             else
             {
                 indicator = CreatePlayerIndicator();
-                Utils.LogInfo("Creating new indicator.");
             }
             
-            indicator.Initialize(character);
-            playerIndicators[character] = indicator;
+            // FIX 2: Assicurati che l'indicatore sia completamente inizializzato
+            if (indicator != null)
+            {
+                indicator.Initialize(character);
+                playerIndicators[character] = indicator;
+                Utils.LogInfo($"Successfully added indicator for {character.refs.view.Owner.NickName}");
+            }
+            else
+            {
+                Utils.LogError("Failed to create player indicator!");
+            }
         }
-
         
         public void RemovePlayerIndicator(Character character)
         {
             if (playerIndicators.TryGetValue(character, out var indicator))
             {
+                indicator.Hide();
                 indicator.gameObject.SetActive(false);
                 indicatorPool.Enqueue(indicator);
                 playerIndicators.Remove(character);
+                
+                Utils.LogInfo($"Removed indicator for {character.refs.view.Owner.NickName}");
             }
         }
         
@@ -370,7 +386,7 @@ namespace HeightMeterMod
             {
                 indicator.UpdatePosition(normalizedHeight, heightInMeters);
                 
-                if (PluginConfig.showNextCheckpoint.Value && nextCheckpoint != null)
+                if (nextCheckpoint != null)
                 {
                     indicator.UpdateNextCheckpoint(nextCheckpoint);
                 }
@@ -380,28 +396,51 @@ namespace HeightMeterMod
         private PlayerHeightIndicator CreatePlayerIndicator()
         {
             var indicatorObj = new GameObject("PlayerIndicator");
-            indicatorObj.transform.SetParent(uiRoot.transform, false);
+            // IMPORTANTE: Rendi l'indicatore figlio della BARRA, non del uiRoot!
+            indicatorObj.transform.SetParent(altitudeBar.transform, false);
             
+            // Aggiungi il RectTransform
             indicatorObj.AddComponent<RectTransform>();
             
             var indicator = indicatorObj.AddComponent<PlayerHeightIndicator>();
-            indicator.Setup(mainFont, barRect, LEFT_OFFSET, BOTTOM_OFFSET, BAR_HEIGHT);
+            
+            // Ora gli indicatori si muoveranno automaticamente con la barra!
+            if (indicator != null && mainFont != null && barRect != null)
+            {
+                // leftOffset = 0 perché ora è relativo alla barra
+                // bottomOffset = 0 perché il bottom della barra è la posizione 0
+                indicator.Setup(mainFont, barRect, 0f, 0f, BAR_HEIGHT);
+            }
+            else
+            {
+                Utils.LogError($"Missing dependencies for indicator: font={mainFont != null}, barRect={barRect != null}");
+            }
             
             return indicator;
-
+        }
+        
+        private void LateUpdate()
+        {
+            if (!isInitialized || playerIndicators.Count == 0) return;
+            
+            // Process clustering
+            clusteringSystem.ProcessIndicators(playerIndicators);
         }
         
         public void SetVisible(bool visible)
         {
             if (uiRoot != null)
+            {
                 uiRoot.SetActive(visible);
+            }
         }
         
         private void OnDestroy()
         {
-            // Clean up all UI elements
             if (uiRoot != null)
+            {
                 Destroy(uiRoot);
+            }
         }
     }
 }
