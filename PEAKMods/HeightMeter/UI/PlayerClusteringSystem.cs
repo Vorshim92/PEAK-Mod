@@ -14,10 +14,8 @@ namespace HeightMeterMod
         public class ClusterConfig
         {
             public float heightThreshold = 0.02f;    // 2% di differenza per raggruppare
-            public float horizontalSpacing = 120f;   // Spaziatura orizzontale in pixel
             public float verticalSpacing = 25f;      // Spaziatura verticale per stacking
-            public bool useSmartStacking = true;    // Abilita stacking verticale intelligente
-            public AnimationCurve spacingCurve;      // Curva per spaziatura dinamica
+            public bool alternateOffset = true;      // Offset alternato per leggibilità
         }
         
         public class PlayerCluster
@@ -44,12 +42,6 @@ namespace HeightMeterMod
         public void Initialize(ClusterConfig clusterConfig)
         {
             config = clusterConfig;
-            
-            // Inizializza curva di default se non specificata
-            if (config.spacingCurve == null || config.spacingCurve.length == 0)
-            {
-                config.spacingCurve = AnimationCurve.EaseInOut(0f, 1f, 1f, 0.5f);
-            }
         }
         
         public void ProcessIndicators(Dictionary<Character, PlayerHeightIndicator> indicators)
@@ -139,62 +131,28 @@ namespace HeightMeterMod
             cluster.indicators.Sort((a, b) => 
                 a.character.name.CompareTo(b.character.name));
             
-            if (config.useSmartStacking && count > 3)
-            {
-                // Stacking verticale + orizzontale per gruppi grandi
-                CalculateSmartStackingOffsets(cluster);
-            }
-            else
-            {
-                // Distribuzione orizzontale semplice
-                CalculateHorizontalOffsets(cluster);
-            }
+            // NUOVO: Usa sempre stacking verticale per i cluster
+            CalculateVerticalStackingOffsets(cluster);
         }
         
-        private void CalculateHorizontalOffsets(PlayerCluster cluster)
+        private void CalculateVerticalStackingOffsets(PlayerCluster cluster)
         {
             int count = cluster.indicators.Count;
-            float totalWidth = (count - 1) * config.horizontalSpacing;
-            float startX = -totalWidth / 2f;
             
+            // Impila verticalmente i nomi
             for (int i = 0; i < count; i++)
             {
-                float normalizedPos = count > 1 ? i / (float)(count - 1) : 0.5f;
-                float spacingMultiplier = config.spacingCurve.Evaluate(normalizedPos);
+                // Offset verticale: ogni nome è spostato di 25 pixel sopra il precedente
+                float yOffset = i * config.verticalSpacing;
                 
-                float xOffset = startX + (i * config.horizontalSpacing * spacingMultiplier);
-                targetOffsets[cluster.indicators[i]] = new Vector2(xOffset, 0f);
-            }
-        }
-        
-        private void CalculateSmartStackingOffsets(PlayerCluster cluster)
-        {
-            int count = cluster.indicators.Count;
-            int columns = Mathf.CeilToInt(Mathf.Sqrt(count));
-            int rows = Mathf.CeilToInt((float)count / columns);
-            
-            float columnWidth = config.horizontalSpacing * 0.8f; // Riduci spaziatura per stacking
-            float rowHeight = config.verticalSpacing;
-            
-            float totalWidth = (columns - 1) * columnWidth;
-            float totalHeight = (rows - 1) * rowHeight;
-            
-            float startX = -totalWidth / 2f;
-            float startY = -totalHeight / 2f;
-            
-            // Distribuisci giocatori in griglia
-            for (int i = 0; i < count; i++)
-            {
-                int col = i % columns;
-                int row = i / columns;
+                // Piccolo offset orizzontale alternato per leggibilità (zigzag)
+                float xOffset = 0f;
+                if (config.alternateOffset && count > 2)
+                {
+                    xOffset = (i % 2 == 0) ? 0f : 30f;
+                }
                 
-                float x = startX + (col * columnWidth);
-                float y = startY + (row * rowHeight);
-                
-                // Aggiungi leggera variazione per evitare perfetta griglia
-                x += Random.Range(-5f, 5f);
-                
-                targetOffsets[cluster.indicators[i]] = new Vector2(x, y);
+                targetOffsets[cluster.indicators[i]] = new Vector2(xOffset, yOffset);
             }
         }
         

@@ -20,6 +20,7 @@ namespace HeightMeterMod
         private RectTransform barRect;
         
         // Systems
+        private UIAnchorSystem anchorSystem;
         private PlayerClusteringSystem clusteringSystem;
         
         // Player indicators
@@ -100,32 +101,24 @@ namespace HeightMeterMod
         
         private void InitializeSystems()
         {
-            // FIX 1: NON usare più anchoraggio alla fullBar, ma posizione relativa
-            // perché fullBar potrebbe non avere la posizione corretta
-            
-            // Initialize Clustering System FIRST (no dependencies)
+            // Initialize Clustering System con la nuova configurazione
             clusteringSystem = gameObject.AddComponent<PlayerClusteringSystem>();
             
             var clusterConfig = new PlayerClusteringSystem.ClusterConfig
             {
-                heightThreshold = 0.025f, // 2.5% threshold
-                horizontalSpacing = 100f,
-                verticalSpacing = 22f,
-                useSmartStacking = true,
-                spacingCurve = AnimationCurve.EaseInOut(0f, 0.8f, 1f, 1.2f)
+                heightThreshold = 0.025f,     // 2.5% threshold per raggruppare
+                verticalSpacing = 22f,        // Spaziatura verticale tra i nomi
+                alternateOffset = true        // Offset alternato per migliore leggibilità
             };
             
             clusteringSystem.Initialize(clusterConfig);
-            
-            // Non inizializziamo più l'anchor system qui
-            // Lo gestiamo manualmente in Update per maggior controllo
         }
         
         private void Update()
         {
             if (!isInitialized || staminaBar == null) return;
             
-            // FIX 1: Posizionamento manuale più preciso
+            // Posizionamento dinamico
             UpdateAltimeterPosition();
         }
         
@@ -431,11 +424,18 @@ namespace HeightMeterMod
         
         private void LateUpdate()
         {
-            if (!isInitialized || playerIndicators.Count == 0) return;
-            
-            // Process clustering
-            clusteringSystem.ProcessIndicators(playerIndicators);
+            if (!isInitialized) return;
+
+            // Aggiorna la posizione della nostra UI per prima cosa
+            UpdateAltimeterPosition();
+
+            // Poi, processa il clustering dei giocatori
+            if (playerIndicators.Count > 0)
+            {
+                clusteringSystem.ProcessIndicators(playerIndicators);
+            }
         }
+
         
         public void SetVisible(bool visible)
         {

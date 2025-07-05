@@ -11,10 +11,12 @@ namespace HeightMeterMod
         private GameObject marker;
         private GameObject label;
         private TextMeshProUGUI nameText;
+        private TextMeshProUGUI heightText;
         private TextMeshProUGUI checkpointText;
         private Image markerImage;
         private CanvasGroup canvasGroup;
-        
+        private RectTransform labelRect;
+
         // References
         public Character character { get; private set; }
         private RectTransform barRect;
@@ -27,8 +29,8 @@ namespace HeightMeterMod
         
         // Enhanced positioning system
         private Vector2 basePosition;
-        private Vector2 targetOffset;
-        private Vector2 currentOffset;
+        private Vector2 labelTargetOffset;
+        private Vector2 labelCurrentOffset;
         private float targetNormalizedHeight;
         private float currentNormalizedHeight;
         
@@ -114,21 +116,28 @@ namespace HeightMeterMod
             markerRect.anchorMax = new Vector2(0f, 0.5f);
             markerRect.pivot = new Vector2(0.5f, 0.5f);
             markerRect.sizeDelta = new Vector2(16f, 4f);
-            float barWidth = barRect.sizeDelta.x;
-            markerRect.anchoredPosition = new Vector2(barWidth / 2f, 0f);
+            // Calcola il centro della barra principale e posiziona il marker lì
+            if (barRect != null) {
+                float barWidth = barRect.sizeDelta.x;
+                markerRect.anchoredPosition = new Vector2(barWidth / 2f, 0f);
+            } else {
+                markerRect.anchoredPosition = new Vector2(0f, 0f); // Fallback
+            }
 
-            
             markerImage = marker.AddComponent<Image>();
             
             // Create label container
             label = new GameObject("Label");
             label.transform.SetParent(transform, false);
             
-            var labelRect = label.AddComponent<RectTransform>();
+            // --- MODIFICA 4: Salviamo il riferimento a labelRect ---
+            labelRect = label.AddComponent<RectTransform>(); // ERA UNA VARIABILE LOCALE, ORA ASSEGNA AL CAMPO
             labelRect.anchorMin = new Vector2(0f, 0.5f);
             labelRect.anchorMax = new Vector2(0f, 0.5f);
             labelRect.pivot = new Vector2(0f, 0.5f);
-            labelRect.anchoredPosition = new Vector2(25f, 0f);
+            // La posizione iniziale del label è a destra del marker
+            labelRect.anchoredPosition = new Vector2(25f, 0f); 
+
             
             // Semi-transparent background
             var bgImage = label.AddComponent<Image>();
@@ -248,7 +257,8 @@ namespace HeightMeterMod
         
         public void SetOffset(Vector2 offset)
         {
-            targetOffset = offset;
+            // Applica l'offset solo al label, non all'intero indicatore!
+            labelTargetOffset = offset;
         }
         
         public void UpdateNextCheckpoint(HeightCalculator.CheckpointInfo checkpoint)
@@ -269,7 +279,7 @@ namespace HeightMeterMod
         private void Update()
         {
             if (!isSetup || rectTransform == null) return;
-            
+        
             // Smooth height interpolation
             currentNormalizedHeight = Mathf.Lerp(
                 currentNormalizedHeight, 
@@ -277,19 +287,28 @@ namespace HeightMeterMod
                 Time.deltaTime * positionSmoothSpeed
             );
             
-            // Smooth offset interpolation
-            currentOffset = Vector2.Lerp(
-                currentOffset, 
-                targetOffset, 
-                Time.deltaTime * offsetSmoothSpeed
-            );
+            // --- MODIFICA 5: Logica di posizionamento separata per marker e label ---
             
-            // Calculate final position
+            // 1. Posiziona il contenitore principale (e quindi il marker) sulla barra.
+            //    Questo non viene più influenzato dall'offset del clustering.
             float yPosition = bottomOffset + (barHeight * currentNormalizedHeight);
             basePosition = new Vector2(leftOffset, yPosition);
+            rectTransform.anchoredPosition = basePosition;
             
-            // Apply position with offset
-            rectTransform.anchoredPosition = basePosition + currentOffset;
+            // 2. Interpola l'offset del label
+            labelCurrentOffset = Vector2.Lerp(
+                labelCurrentOffset, 
+                labelTargetOffset, 
+                Time.deltaTime * offsetSmoothSpeed
+            );
+
+            // 3. Applica l'offset solo al RectTransform del label.
+            //    Il label si sposterà rispetto al suo genitore (il PlayerIndicator).
+            if (labelRect != null)
+            {
+                // La posizione base del label è a (25, 0) + l'offset calcolato
+                labelRect.anchoredPosition = new Vector2(25f, 0f) + labelCurrentOffset;
+            }
             
             // Smooth alpha interpolation
             currentAlpha = Mathf.Lerp(currentAlpha, targetAlpha, Time.deltaTime * 10f);
