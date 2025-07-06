@@ -26,8 +26,16 @@ namespace HeightMeterMod
         private Dictionary<Character, PlayerHeightIndicator> playerIndicators = new Dictionary<Character, PlayerHeightIndicator>();
         private Queue<PlayerHeightIndicator> indicatorPool = new Queue<PlayerHeightIndicator>();
         
-        // Progress markers
-        private List<GameObject> progressMarkers = new List<GameObject>();
+        // NUOVA CLASSE PRIVATA: Contiene i riferimenti UI necessari per il layout.
+        private class UIMarker
+        {
+            public GameObject RootObject { get; set; }
+            public RectTransform LabelRect { get; set; }
+            public float NormalizedHeight { get; set; }
+        }
+
+        // MODIFICATA: La lista ora conterrà i nostri oggetti UIMarker.
+        private List<UIMarker> progressMarkers = new List<UIMarker>();
 
         
         // UI settings
@@ -48,32 +56,28 @@ namespace HeightMeterMod
         
         public bool IsVisible => uiRoot?.activeSelf ?? false;
         
+        
         public void Initialize(HeightCalculator calculator)
         {
             heightCalculator = calculator;
-            
+
             // Get StaminaBar reference
-            if (!TryGetStaminaBarReference()) 
+            if (!TryGetStaminaBarReference())
             {
                 Utils.LogError("Failed to get StaminaBar reference!");
                 return;
             }
-            
+
             // Find game font
             FindGameFont();
-            
+
             // Create UI structure
             CreateUI();
-            
+
             // Initialize systems
             InitializeSystems();
-            
-            // Create progress markers if enabled
-            // if (PluginConfig.showProgressMarkers.Value)
-            // {
-            //     CreateProgressMarkers();
-            // }
-            
+
+
             isInitialized = true;
             Utils.LogInfo("HeightMeterUI initialized with enhanced systems");
         }
@@ -281,46 +285,52 @@ namespace HeightMeterMod
             
             return labelObj;
         }
-        
+
         public void CreateProgressMarkers()
         {
             if (heightCalculator == null || !PluginConfig.showProgressMarkers.Value) return;
 
-            // Pulisci i marker esistenti per evitare duplicati
+            // Pulisci i marker esistenti
             foreach (var marker in progressMarkers)
             {
-                Destroy(marker);
+                Destroy(marker.RootObject);
             }
             progressMarkers.Clear();
 
             var markersData = heightCalculator.GetProgressMarkers();
             
-            foreach (var marker in markersData)
+            // --- FASE 1: Creazione ---
+            // Crea tutti i marker e memorizzali nella nostra lista strutturata.
+            foreach (var data in markersData)
             {
-                CreateProgressMarker(marker); // Il metodo CreateProgressMarker rimane lo stesso
+                UIMarker newMarker = CreateProgressMarker(data);
+                progressMarkers.Add(newMarker);
             }
 
-            Utils.LogInfo($"Created {progressMarkers.Count} progress markers on the UI.");
+            // --- FASE 2: Layout ---
+            // Applica l'algoritmo di de-collisione DOPO che tutti i marker sono stati creati.
+            ApplyMarkerLayout();
+
+            Utils.LogInfo($"Created and laid out {progressMarkers.Count} progress markers on the UI.");
         }
 
         
-        private void CreateProgressMarker(HeightCalculator.ProgressMarker marker)
+        private UIMarker CreateProgressMarker(HeightCalculator.ProgressMarker markerData)
         {
-            var markerObj = new GameObject($"Marker_{marker.Name}");
-            markerObj.transform.SetParent(altitudeBar.transform, false); // Figlio della barra!
-            
+            var markerObj = new GameObject($"Marker_{markerData.Name}");
+            markerObj.transform.SetParent(altitudeBar.transform, false); 
+
             var markerRect = markerObj.AddComponent<RectTransform>();
-            markerRect.anchorMin = new Vector2(0f, marker.NormalizedHeight);
-            markerRect.anchorMax = new Vector2(1f, marker.NormalizedHeight);
+            markerRect.anchorMin = new Vector2(0f, markerData.NormalizedHeight);
+            markerRect.anchorMax = new Vector2(1f, markerData.NormalizedHeight);
             markerRect.sizeDelta = new Vector2(0f, 2f);
             markerRect.anchoredPosition = Vector2.zero;
             
             var markerImage = markerObj.AddComponent<Image>();
-            markerImage.color = marker.IsReached 
-                ? new Color(0.2f, 0.8f, 0.2f, 0.5f)  // Green for reached
-                : new Color(1f, 1f, 1f, 0.3f);       // White for unreached
+            markerImage.color = markerData.IsReached 
+                ? new Color(0.2f, 0.8f, 0.2f, 0.5f)
+                : new Color(1f, 1f, 1f, 0.3f);
             
-            // Add label with better positioning
             var labelObj = new GameObject("Label");
             labelObj.transform.SetParent(markerObj.transform, false);
             
@@ -331,20 +341,80 @@ namespace HeightMeterMod
             labelRect.anchoredPosition = new Vector2(20f, 0f);
             
             var labelText = labelObj.AddComponent<TextMeshProUGUI>();
-            labelText.text = $"{marker.Name} - {marker.HeightInMeters:F0}m";
+            labelText.text = $"{markerData.Name} - {markerData.HeightInMeters:F0}m";
             labelText.font = mainFont;
             labelText.fontSize = 11f;
-            labelText.color = marker.IsReached 
+            labelText.color = markerData.IsReached 
                 ? new Color(0.5f, 1f, 0.5f, 0.7f)
                 : new Color(1f, 1f, 1f, 0.5f);
             labelText.alignment = TextAlignmentOptions.Left;
             
+            // --- CODICE RIPRISTINATO ---
+            // Questo componente è FONDAMENTALE. Ordina al RectTransform del label
+            // di adattare le sue dimensioni al testo contenuto.
             var fitter = labelObj.AddComponent<ContentSizeFitter>();
             fitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            // --- FINE CODICE RIPRISTINATO ---
             
-            progressMarkers.Add(markerObj);
+            return new UIMarker
+            {
+                RootObject = markerObj,
+                LabelRect = labelRect,
+                NormalizedHeight = markerData.NormalizedHeight
+            };
         }
+
+        private void ApplyMarkerLayout()
+        {
+            if (progressMarkers.Count <= 1) return;
+
+            // Soglia di prossimità (4% dell'altezza della barra) per raggruppare i marker.
+            const float CLUSTER_THRESHOLD = 0.04f; 
+            // Spaziatura verticale tra i label impilati.
+            const float VERTICAL_SPACING = 15f; 
+
+            var clusters = new List<List<UIMarker>>();
+            
+            // 1. Raggruppa i marker in cluster basati sulla vicinanza
+            foreach (var marker in progressMarkers) // I marker sono già ordinati per altezza da HeightCalculator
+            {
+                if (clusters.Count == 0 || (marker.NormalizedHeight - clusters.Last().Last().NormalizedHeight > CLUSTER_THRESHOLD))
+                {
+                    // Inizia un nuovo cluster
+                    clusters.Add(new List<UIMarker> { marker });
+                }
+                else
+                {
+                    // Aggiungi al cluster esistente
+                    clusters.Last().Add(marker);
+                }
+            }
+
+            // 2. Applica gli offset ai cluster con più di un elemento
+            foreach (var cluster in clusters)
+            {
+                if (cluster.Count <= 1) continue;
+
+                // Ordina il cluster per altezza (dal più alto al più basso) per lo stacking
+                var sortedCluster = cluster.OrderByDescending(m => m.NormalizedHeight).ToList();
+                
+                for (int i = 0; i < sortedCluster.Count; i++)
+                {
+                    var marker = sortedCluster[i];
+                    
+                    // L'offset Y è basato sulla posizione nello stack.
+                    // Il marker più in alto (i=0) rimane nella sua posizione (o quasi), gli altri vengono spostati verso il basso.
+                    float yOffset = i * -VERTICAL_SPACING;
+
+                    // Applica l'offset al RectTransform del label
+                    marker.LabelRect.anchoredPosition += new Vector2(0, yOffset);
+                }
+            }
+
+            Utils.LogInfo($"Marker layout applied. Found {clusters.Count(c => c.Count > 1)} clusters to adjust.");
+        }
+
         
         public void AddPlayerIndicator(Character character)
         {
@@ -353,9 +423,9 @@ namespace HeightMeterMod
                 Utils.LogWarning($"Indicator for {character.refs.view.Owner.NickName} already exists");
                 return;
             }
-            
+
             Utils.LogInfo($"Creating indicator for {character.refs.view.Owner.NickName}");
-            
+
             // Get from pool or create new
             PlayerHeightIndicator indicator;
             if (indicatorPool.Count > 0)
@@ -367,7 +437,7 @@ namespace HeightMeterMod
             {
                 indicator = CreatePlayerIndicator();
             }
-            
+
             // FIX 2: Assicurati che l'indicatore sia completamente inizializzato
             if (indicator != null)
             {
