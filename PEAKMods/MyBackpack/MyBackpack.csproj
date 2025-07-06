@@ -72,6 +72,18 @@
       <HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Photon.Pun">
+      <HintPath>$(GameManaged)\Photon.Pun.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Photon.Realtime">
+      <HintPath>$(GameManaged)\Photon.Realtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Photon3Unity3D">
+      <HintPath>$(GameManaged)\Photon3Unity3D.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
 
   </ItemGroup>
 
