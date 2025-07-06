@@ -6,7 +6,7 @@ using Photon.Pun;
 using System.Collections;
 using Photon.Realtime;
 using ExitGames.Client.Photon;
-
+using BackpackUISlotsPatches = BackpackViewerMod.Patches.BackpackUISlotsPatches;
 namespace BackpackViewerMod
 {
     public class TrackedPlayer
@@ -23,111 +23,87 @@ namespace BackpackViewerMod
         }
     }
     
-    public static class PlayerManager
+    public class PlayerManager
     {
-        public static event Action OnTrackedPlayersChanged;
+        public event Action<List<TrackedPlayer>> OnTrackedPlayersChanged;
 
-        private static readonly Dictionary<Photon.Realtime.Player, TrackedPlayer> trackedPlayers = new Dictionary<Photon.Realtime.Player, TrackedPlayer>();
-        private static Coroutine updateCoroutine;
+        private readonly Dictionary<Photon.Realtime.Player, TrackedPlayer> trackedPlayers = new Dictionary<Photon.Realtime.Player, TrackedPlayer>();
+        private Coroutine updateCoroutine;
+        private readonly PhotonCallbacksHandler photonCallbacks;
         
-        public static List<TrackedPlayer> PlayersWithBackpacks { get; private set; } = new List<TrackedPlayer>();
-
-        public static void Initialize()
+        public PlayerManager(BackpackUISlotsPatches uiManager)
         {
-            if (Plugin.Instance != null)
-            {
-                PhotonNetwork.AddCallbackTarget(photonCallbacks);
-                updateCoroutine = Plugin.Instance.StartCoroutine(StatusCheckCoroutine()); // Rinominato per chiarezza
-                Utils.LogInfo("PlayerManager Initialized.");
-            }
-            // La scansione iniziale è ancora utile per i casi in cui tutto è già pronto
-            InitialScan(); 
+            this.OnTrackedPlayersChanged += uiManager.OnTrackedPlayersChanged;
+            photonCallbacks = new PhotonCallbacksHandler(this);
+            Initialize();
         }
 
-        public static void Shutdown()
+        private void Initialize()
         {
-            if (Plugin.Instance != null && updateCoroutine != null)
+            PhotonNetwork.AddCallbackTarget(photonCallbacks);
+            updateCoroutine = Plugin.Instance.StartCoroutine(StatusCheckCoroutine());
+            Utils.LogInfo("PlayerManager instance created and initialized.");
+        }
+
+        public void Shutdown()
+        {
+            if (updateCoroutine != null)
             {
                 Plugin.Instance.StopCoroutine(updateCoroutine);
             }
             PhotonNetwork.RemoveCallbackTarget(photonCallbacks);
             trackedPlayers.Clear();
-            PlayersWithBackpacks.Clear();
-            OnTrackedPlayersChanged?.Invoke();
-            Utils.LogInfo("PlayerManager Shutdown.");
+            OnTrackedPlayersChanged?.Invoke(new List<TrackedPlayer>());
+            Utils.LogInfo("PlayerManager instance shut down.");
         }
 
-        // [ARCHITECT'S NOTE] La coroutine ora è il cuore pulsante del sistema.
-        private static IEnumerator StatusCheckCoroutine()
+        private IEnumerator StatusCheckCoroutine()
         {
-            // Breve attesa iniziale per dare tempo alla scena di caricarsi completamente
             yield return new WaitForSeconds(2.0f); 
 
             while (true)
             {
-                // 1. Cerca giocatori che sono nella stanza ma non ancora tracciati
                 DiscoverUntrackedPlayers();
-                
-                // 2. Aggiorna lo stato degli zaini per i giocatori tracciati
                 UpdateBackpackStatus();
-                
-                // Attendi prima del prossimo ciclo completo
                 yield return new WaitForSeconds(1.0f);
             }
         }
         
-        // [ARCHITECT'S NOTE] Nuovo metodo per la scoperta continua di giocatori.
-        private static void DiscoverUntrackedPlayers()
+        private void DiscoverUntrackedPlayers()
         {
             if (PhotonNetwork.PlayerList == null) return;
-
             foreach (var player in PhotonNetwork.PlayerList)
             {
                 if (player != null && !trackedPlayers.ContainsKey(player))
                 {
-                    // Tenta di aggiungere il giocatore se non è già tracciato
                     AddPlayer(player);
                 }
             }
         }
 
-        private static void InitialScan()
+        private void AddPlayer(Photon.Realtime.Player player)
         {
-            // Questo metodo ora serve come primo tentativo rapido al caricamento.
-            // La coroutine gestirà i casi in cui fallisce.
-            DiscoverUntrackedPlayers();
-        }
-
-        private static void AddPlayer(Photon.Realtime.Player player)
-        {
-            // La condizione di uscita anticipata ora è solo sul player, non sulla chiave
-            if (player == null) return;
-            if(trackedPlayers.ContainsKey(player)) return; // Aggiunta per sicurezza
-
+            if (player == null || trackedPlayers.ContainsKey(player)) return;
             var character = Character.AllCharacters.FirstOrDefault(c => c?.refs?.view?.Owner == player);
             if (character != null)
             {
                 trackedPlayers[player] = new TrackedPlayer(character);
                 Utils.LogInfo($"PlayerManager: Successfully tracked {player.NickName} (ID: {character.refs.view.Owner.ActorNumber}).");
-                // Un aggiornamento immediato è utile quando si aggiunge un nuovo giocatore
                 UpdateBackpackStatus(); 
             }
-            // Non è più necessario un LogWarning qui, perché il sistema riproverà automaticamente
         }
         
-        private static void RemovePlayer(Photon.Realtime.Player player)
+        private void RemovePlayer(Photon.Realtime.Player player)
         {
             if (player == null || !trackedPlayers.ContainsKey(player)) return;
-            
             Utils.LogInfo($"PlayerManager: Untracking {player.NickName}.");
             trackedPlayers.Remove(player);
             UpdateBackpackStatus();
         }
         
-        private static void UpdateBackpackStatus()
+        private void UpdateBackpackStatus()
         {
             bool hasChanged = false;
-
             var toRemove = trackedPlayers.Where(kvp => kvp.Key == null || kvp.Value.Character == null).Select(kvp => kvp.Key).ToList();
             if (toRemove.Any())
             {
@@ -139,30 +115,26 @@ namespace BackpackViewerMod
             {
                 BackpackSlot backpackSlot = trackedPlayer.Character.player.backpackSlot;
                 bool currentlyHasBackpack = !backpackSlot.IsEmpty();
-
                 if (trackedPlayer.HasBackpack != currentlyHasBackpack)
                 {
                     trackedPlayer.HasBackpack = currentlyHasBackpack;
                     hasChanged = true;
-                    Utils.LogInfo($"Player {trackedPlayer.Character.name} backpack status changed to: {currentlyHasBackpack}");
                 }
             }
 
             if (hasChanged)
             {
-                PlayersWithBackpacks = trackedPlayers.Values.Where(p => p.HasBackpack).ToList();
-                Utils.LogInfo($"Invoking OnTrackedPlayersChanged. {PlayersWithBackpacks.Count} players with backpacks.");
-                OnTrackedPlayersChanged?.Invoke();
+                var playersWithBackpacks = trackedPlayers.Values.Where(p => p.HasBackpack).ToList();
+                OnTrackedPlayersChanged?.Invoke(playersWithBackpacks);
             }
         }
         
-        private static readonly PhotonCallbacksHandler photonCallbacks = new PhotonCallbacksHandler();
-
-        private class PhotonCallbacksHandler : IConnectionCallbacks, IMatchmakingCallbacks, IInRoomCallbacks
+        private class PhotonCallbacksHandler : IInRoomCallbacks, IConnectionCallbacks, IMatchmakingCallbacks
         {
-            public void OnPlayerEnteredRoom(Photon.Realtime.Player newPlayer) => AddPlayer(newPlayer);
-            public void OnPlayerLeftRoom(Photon.Realtime.Player otherPlayer) => RemovePlayer(otherPlayer);
-
+            private readonly PlayerManager owner;
+            public PhotonCallbacksHandler(PlayerManager owner) { this.owner = owner; }
+            public void OnPlayerEnteredRoom(Photon.Realtime.Player newPlayer) => owner.AddPlayer(newPlayer);
+            public void OnPlayerLeftRoom(Photon.Realtime.Player otherPlayer) => owner.RemovePlayer(otherPlayer);
             // Metodi non usati ma richiesti dall'interfaccia
             public void OnConnected() { }
             public void OnConnectedToMaster() { }
@@ -179,8 +151,7 @@ namespace BackpackViewerMod
             public void OnLeftRoom() { }
             public void OnPlayerPropertiesUpdate(Photon.Realtime.Player targetPlayer, ExitGames.Client.Photon.Hashtable changedProps) { }
             public void OnMasterClientSwitched(Photon.Realtime.Player newMasterClient) { }
-            public void OnRoomPropertiesUpdate(ExitGames.Client.Photon.Hashtable propertiesThatChanged) { } // <-- AGGIUNGI QUESTA RIGA
-
+            public void OnRoomPropertiesUpdate(ExitGames.Client.Photon.Hashtable propertiesThatChanged) { }
         }
     }
 }

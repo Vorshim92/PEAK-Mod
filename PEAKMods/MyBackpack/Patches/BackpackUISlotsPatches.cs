@@ -4,15 +4,14 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using System.Linq;
+using System.Collections;
 
 namespace BackpackViewerMod.Patches
 {
-    // Modello per la nostra UI, legato a un TrackedPlayer
     public class PlayerBackpackDisplay
     {
         public TrackedPlayer TrackedPlayer { get; }
         public GameObject MainContainer { get; set; }
-        public TextMeshProUGUI NameLabel { get; set; }
         public List<Image> IconImages { get; } = new List<Image>();
 
         public PlayerBackpackDisplay(TrackedPlayer trackedPlayer)
@@ -20,64 +19,67 @@ namespace BackpackViewerMod.Patches
             TrackedPlayer = trackedPlayer;
         }
     }
-
-    // Classe principale per la gestione della UI degli zaini
-    public static class BackpackUISlotsPatches
+    
+    public class BackpackUISlotsPatches
     {
-        // [ARCHITECT'S NOTE] Costanti per un layout pulito e configurabile
+        private static BackpackUISlotsPatches _instance;
+
         private const float PADDING_RIGHT = -15f;
         private const float PADDING_TOP = -15f;
         private const float HORIZONTAL_SPACING = 10f;
-        private const float VERTICAL_SPACING = 10f; // Riservato per usi futuri
+        private const float DEBUG_SLOT_SIZE = 35f;
 
-        // Cache delle UI create, per non distruggere e ricreare oggetti
-        private static readonly Dictionary<Character, PlayerBackpackDisplay> uiDisplayPool = new Dictionary<Character, PlayerBackpackDisplay>();
-        // Lista delle UI attualmente attive, aggiornata dagli eventi
-        private static List<PlayerBackpackDisplay> activeDisplays = new List<PlayerBackpackDisplay>();
+        private readonly Dictionary<Character, PlayerBackpackDisplay> uiDisplayPool = new Dictionary<Character, PlayerBackpackDisplay>();
+        private List<PlayerBackpackDisplay> activeDisplays = new List<PlayerBackpackDisplay>();
 
-        private static Transform parentCanvas;
-        private static TMP_FontAsset gameFont; // <-- NUOVA cache per il font
+        private Transform parentCanvas;
+        private TMP_FontAsset gameFont;
 
-
-        // Metodo chiamato da Plugin.cs per inizializzare il sistema
-        public static void Initialize()
+        public BackpackUISlotsPatches()
         {
-            PlayerManager.OnTrackedPlayersChanged += OnTrackedPlayersChanged;
-            Utils.LogInfo("Backpack UI System Initialized and subscribed to PlayerManager events.");
+            _instance = this;
+            Utils.LogInfo("Backpack UI System instance created.");
         }
 
-        // Metodo chiamato da Plugin.cs per lo spegnimento pulito
-        public static void Shutdown()
+        public void Shutdown()
         {
-            PlayerManager.OnTrackedPlayersChanged -= OnTrackedPlayersChanged;
             CleanupAllDisplays();
-            Utils.LogInfo("Backpack UI System Shutdown and unsubscribed from events.");
+            _instance = null;
+            Utils.LogInfo("Backpack UI System instance shut down.");
         }
 
-        // [ARCHITECT'S NOTE] Questo è il CUORE del sistema reattivo.
-        // Viene eseguito SOLO quando PlayerManager notifica un cambiamento.
-        private static void OnTrackedPlayersChanged()
+        private bool EnsureCanvasIsAvailable()
         {
-            var playersWithBackpacks = PlayerManager.PlayersWithBackpacks;
+            if (parentCanvas == null)
+            {
+                if (GUIManager.instance != null && GUIManager.instance.hudCanvas != null)
+                {
+                    parentCanvas = GUIManager.instance.hudCanvas.transform;
+                }
+            }
+            return parentCanvas != null;
+        }
 
+
+        public void OnTrackedPlayersChanged(List<TrackedPlayer> playersWithBackpacks)
+        {
             foreach (var trackedPlayer in playersWithBackpacks)
             {
                 if (!uiDisplayPool.ContainsKey(trackedPlayer.Character))
                 {
                     var newDisplay = CreateDisplayForPlayer(trackedPlayer);
-                    if (newDisplay != null) // Controlla che la creazione sia andata a buon fine
+                    if (newDisplay != null)
                     {
                         uiDisplayPool[trackedPlayer.Character] = newDisplay;
                     }
                 }
             }
-
+            
             activeDisplays = playersWithBackpacks
-                .Where(p => uiDisplayPool.ContainsKey(p.Character)) // Assicurati che esista nel pool
+                .Where(p => uiDisplayPool.ContainsKey(p.Character))
                 .Select(p => uiDisplayPool[p.Character])
                 .ToList();
 
-            // Sincronizza lo stato di visibilità di TUTTE le UI nel pool
             var activeCharacters = new HashSet<Character>(playersWithBackpacks.Select(p => p.Character));
             foreach (var kvp in uiDisplayPool)
             {
@@ -92,176 +94,177 @@ namespace BackpackViewerMod.Patches
         [HarmonyPatch(typeof(GUIManager), "LateUpdate")]
         public class GUIManager_LateUpdate_Patch
         {
-            static void Postfix(GUIManager __instance)
+            static void Postfix()
             {
-                // [ARCHITECT'S NOTE] Ora questo blocco serve solo per il primo caching.
-                // La logica di creazione non dipende più da questo.
-                if (parentCanvas == null)
-                {
-                    EnsureCanvasIsAvailable();
-                }
-                if (parentCanvas == null) return;
+                _instance?.OnLateUpdate();
+            }
+        }
+        
+        private void OnLateUpdate()
+        {
+            if (!EnsureCanvasIsAvailable()) return;
 
-                // Uscita anticipata se la feature è disattivata, nascondendo le UI se necessario
-                if (!PluginConfig.showPlayerBackpackSlots.Value)
-                {
-                    if (activeDisplays.Any(d => d.MainContainer.activeSelf))
-                    {
-                        HideAllDisplays();
-                    }
-                    return;
-                }
-                
-                // [ARCHITECT'S NOTE] Logica di LateUpdate minimale: solo posizionamento e aggiornamento icone
-                // Nessuna iterazione di AllCharacters, nessuna logica complessa. Solo rendering.
+            if (!PluginConfig.showPlayerBackpackSlots.Value)
+            {
+                if (activeDisplays.Any(d => d.MainContainer.activeSelf)) HideAllDisplays();
+                return;
+            }
 
-                var localPlayerDisplay = activeDisplays.FirstOrDefault(d => d.TrackedPlayer.Character.IsLocal);
-                var otherPlayerDisplays = activeDisplays.Where(d => !d.TrackedPlayer.Character.IsLocal).ToList();
+            var localPlayerDisplay = activeDisplays.FirstOrDefault(d => d.TrackedPlayer.Character.IsLocal);
+            var otherPlayerDisplays = activeDisplays.Where(d => !d.TrackedPlayer.Character.IsLocal).ToList();
+            float nextHorizontalOffset = PADDING_RIGHT;
 
-                float nextHorizontalOffset = PADDING_RIGHT;
-
-                // 1. Posiziona la UI del giocatore locale
-                if (localPlayerDisplay != null)
+            if (localPlayerDisplay != null)
+            {
+                PositionUI(localPlayerDisplay, new Vector2(nextHorizontalOffset, PADDING_TOP));
+                nextHorizontalOffset -= (localPlayerDisplay.MainContainer.GetComponent<RectTransform>().sizeDelta.x + HORIZONTAL_SPACING);
+            }
+            
+            if (PluginConfig.showOtherPlayerBackpackSlots.Value)
+            {
+                foreach (var display in otherPlayerDisplays.OrderBy(d => d.TrackedPlayer.ActorID))
                 {
-                    PositionLocalPlayerUI(localPlayerDisplay);
-                    UpdateDisplayIcons(localPlayerDisplay);
-                    
-                    // Prepara l'offset per gli altri giocatori
-                    nextHorizontalOffset -= (localPlayerDisplay.MainContainer.GetComponent<RectTransform>().sizeDelta.x + HORIZONTAL_SPACING);
-                }
-                
-                // 2. Posiziona le UI degli altri giocatori
-                if (PluginConfig.showOtherPlayerBackpackSlots.Value)
-                {
-                    PositionOtherPlayersUI(otherPlayerDisplays, nextHorizontalOffset);
-                }
-                else // Se l'opzione è disattivata, assicuriamoci che siano nascoste
-                {
-                     foreach(var display in otherPlayerDisplays)
-                     {
-                         if(display.MainContainer.activeSelf) display.MainContainer.SetActive(false);
-                     }
+                    PositionUI(display, new Vector2(nextHorizontalOffset, PADDING_TOP));
+                    nextHorizontalOffset -= (display.MainContainer.GetComponent<RectTransform>().sizeDelta.x + HORIZONTAL_SPACING);
                 }
             }
         }
 
-        private static void HideAllDisplays()
+        private void HideAllDisplays()
         {
             foreach (var display in uiDisplayPool.Values)
             {
                 if (display.MainContainer != null && display.MainContainer.activeSelf)
-                {
                     display.MainContainer.SetActive(false);
-                }
             }
             activeDisplays.Clear();
         }
 
-        private static void CleanupAllDisplays()
+        private void CleanupAllDisplays()
         {
-            if (uiDisplayPool.Count > 0)
+            foreach (var display in uiDisplayPool.Values)
             {
-                foreach (var display in uiDisplayPool.Values)
-                {
-                    if (display.MainContainer != null)
-                    {
-                        GameObject.Destroy(display.MainContainer);
-                    }
-                }
-                uiDisplayPool.Clear();
+                if (display.MainContainer != null) GameObject.Destroy(display.MainContainer);
             }
+            uiDisplayPool.Clear();
             activeDisplays.Clear();
         }
         
-        // [ARCHITECT'S NOTE] Questo metodo è stato aggiunto per garantire che il canvas sia valido.
-        private static bool EnsureCanvasIsAvailable()
+        private PlayerBackpackDisplay CreateDisplayForPlayer(TrackedPlayer trackedPlayer)
         {
-            if (parentCanvas == null)
-            {
-                if (GUIManager.instance != null && GUIManager.instance.hudCanvas != null)
-                {
-                    parentCanvas = GUIManager.instance.hudCanvas.transform;
-                    Utils.LogInfo("Successfully cached HUD Canvas transform.");
-                }
-            }
-            return parentCanvas != null;
-        }
-        
-        // Metodo helper per creare gli oggetti UI per un giocatore
-        private static PlayerBackpackDisplay CreateDisplayForPlayer(TrackedPlayer trackedPlayer)
-        {
-            // [ARCHITECT'S NOTE] Controllo "Just-In-Time" del canvas.
-            if (!EnsureCanvasIsAvailable())
-            {
-                Utils.LogError("Cannot create player display: HUD Canvas is not available.");
-                return null; // Impossibile creare la UI, esci.
-            }
+            if (!EnsureCanvasIsAvailable()) return null;
 
             Character character = trackedPlayer.Character;
             var display = new PlayerBackpackDisplay(trackedPlayer);
-
+            
             bool isLocal = character.IsLocal;
             float scale = isLocal ? 1.0f : PluginConfig.otherPlayerSlotsScale.Value;
-
+            
+            // --- MAIN CONTAINER ---
             display.MainContainer = new GameObject($"BackpackDisplay_{character.characterName}");
             display.MainContainer.transform.SetParent(parentCanvas, false);
-            var mainRect = display.MainContainer.AddComponent<RectTransform>();
-            mainRect.anchorMin = new Vector2(1, 1);
-            mainRect.anchorMax = new Vector2(1, 1);
+            
+            var mainLayout = display.MainContainer.AddComponent<VerticalLayoutGroup>();
+            mainLayout.childAlignment = TextAnchor.UpperRight;
+            mainLayout.spacing = 2 * scale;
+            // --- ISTRUZIONE FONDAMENTALE #1 ---
+            // Diciamo a questo layout di NON controllare la dimensione dei suoi figli.
+            // Questo permette ai figli di avere i propri sistemi di layout (ContentSizeFitter, etc.)
+            mainLayout.childControlHeight = false;
+            mainLayout.childControlWidth = false;
+            mainLayout.childForceExpandHeight = false;
+            mainLayout.childForceExpandWidth = false;
+
+            var mainContentFitter = display.MainContainer.AddComponent<ContentSizeFitter>();
+            mainContentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            mainContentFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            var mainRect = display.MainContainer.GetComponent<RectTransform>();
+            mainRect.anchorMin = new Vector2(1, 1); 
+            mainRect.anchorMax = new Vector2(1, 1); 
             mainRect.pivot = new Vector2(1, 1);
 
-            // Etichetta con il nome
+            // --- LABEL ---
             var labelObj = new GameObject("NameLabel");
             labelObj.transform.SetParent(display.MainContainer.transform, false);
-            display.NameLabel = labelObj.AddComponent<TextMeshProUGUI>();
-            display.NameLabel.text = character.characterName;
-            display.NameLabel.alignment = TextAlignmentOptions.TopRight;
-            ApplyTMProStyle(display.NameLabel, 16 * scale, character.refs.customization.PlayerColor);
+            var nameLabel = labelObj.AddComponent<TextMeshProUGUI>();
+            nameLabel.text = character.characterName;
+            ApplyTMProStyle(nameLabel, 16 * scale, character.refs.customization.PlayerColor);
+            nameLabel.alignment = TextAlignmentOptions.TopRight;
+            var labelLayoutElement = labelObj.AddComponent<LayoutElement>();
+            labelLayoutElement.minWidth = 120 * scale;
 
-            var labelRect = labelObj.GetComponent<RectTransform>();
-            labelRect.anchorMin = new Vector2(1, 1);
-            labelRect.anchorMax = new Vector2(1, 1);
-            labelRect.pivot = new Vector2(1, 1);
-            labelRect.sizeDelta = new Vector2(120 * scale, 22 * scale);
-            labelRect.anchoredPosition = Vector2.zero;
+            var slotsContainerObj = new GameObject("SlotsContainer");
+            slotsContainerObj.transform.SetParent(display.MainContainer.transform, false);
 
-            // Slot degli oggetti
-            float slotSize = 60 * scale;
-            float slotSpacing = 5 * scale;
+            var slotsLayout = slotsContainerObj.AddComponent<VerticalLayoutGroup>();
+            slotsLayout.childAlignment = TextAnchor.UpperRight;
+            slotsLayout.spacing = 3 * scale;
+            // --- ISTRUZIONE FONDAMENTALE #2 ---
+            // Anche questo layout non deve forzare la dimensione dei suoi figli (gli slot).
+            slotsLayout.childControlHeight = false;
+            slotsLayout.childControlWidth = false;
+            
+            var slotsContentFitter = slotsContainerObj.AddComponent<ContentSizeFitter>();
+            slotsContentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            slotsContentFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            
+            float slotSize = DEBUG_SLOT_SIZE * scale;
+            Utils.LogInfo($"[ARCHITECT-DIAGNOSTIC] Creazione slot per '{trackedPlayer.Character.characterName}'. Scala: {scale}, Dimensione Slot Calcolata: {slotSize}");
+            float borderWidth = 2.5f * scale;
+
             for (int i = 0; i < 4; i++)
             {
-                var slotBg = new GameObject($"Slot_BG_{i}");
-                slotBg.transform.SetParent(display.MainContainer.transform, false);
-                slotBg.AddComponent<Image>().color = new Color(0.1f, 0.1f, 0.1f, 0.6f);
-                var bgRect = slotBg.GetComponent<RectTransform>();
-                bgRect.anchorMin = new Vector2(1, 1);
-                bgRect.anchorMax = new Vector2(1, 1);
-                bgRect.pivot = new Vector2(1, 1);
-                bgRect.sizeDelta = new Vector2(slotSize, slotSize);
-                bgRect.anchoredPosition = new Vector2(0, -labelRect.sizeDelta.y - (i * (slotSize + slotSpacing)));
+                var slotObj = new GameObject($"Slot_{i}");
+                slotObj.transform.SetParent(slotsContainerObj.transform, false); 
+                
+                // --- ISTRUZIONE FONDAMENTALE #3 ---
+                // Diamo allo slot una dimensione preferita tramite LayoutElement.
+                // Questo è il modo corretto per comunicare con un LayoutGroup genitore.
+                var slotLayoutElement = slotObj.AddComponent<LayoutElement>();
+                slotLayoutElement.preferredWidth = slotSize;
+                slotLayoutElement.preferredHeight = slotSize;
+                
+                // Non abbiamo più bisogno di un RectTransform separato per lo slot,
+                // perché il LayoutElement e il genitore si occuperanno di tutto.
 
+                var backgroundObj = new GameObject("SlotBackground");
+                backgroundObj.transform.SetParent(slotObj.transform, false);
+                var slotBackground = backgroundObj.AddComponent<RoundedImageWithBorder>();
+                slotBackground.raycastTarget = false;
+                slotBackground.cornerRadius = slotSize * 0.25f;
+                slotBackground.borderWidth = borderWidth;
+                slotBackground.color = Color.white;
+
+                var backgroundRect = backgroundObj.GetComponent<RectTransform>();
+                backgroundRect.anchorMin = Vector2.zero;
+                backgroundRect.anchorMax = Vector2.one;
+                backgroundRect.offsetMin = Vector2.zero;
+                backgroundRect.offsetMax = Vector2.zero;
+                
                 var iconObj = new GameObject($"Icon_{i}");
-                iconObj.transform.SetParent(slotBg.transform, false);
+                iconObj.transform.SetParent(slotObj.transform, false);
                 var iconImage = iconObj.AddComponent<Image>();
                 iconImage.raycastTarget = false;
                 var iconRect = iconObj.GetComponent<RectTransform>();
                 iconRect.anchorMin = Vector2.zero;
                 iconRect.anchorMax = Vector2.one;
-                iconRect.sizeDelta = new Vector2(-10 * scale, -10 * scale);
+                float iconPadding = 5 * scale; // Ridotto il padding per la nuova dimensione
+                iconRect.offsetMin = new Vector2(iconPadding, iconPadding);
+                iconRect.offsetMax = new Vector2(-iconPadding, -iconPadding);
                 display.IconImages.Add(iconImage);
             }
-
-            mainRect.sizeDelta = new Vector2(slotSize, labelRect.sizeDelta.y + (4 * slotSize) + (3 * slotSpacing));
-            display.MainContainer.SetActive(false); // Inizia nascosto, sarà attivato dall'evento
+            
+            // Torniamo alla logica semplice: il container viene creato inattivo.
+            // Sarà gestito da OnTrackedPlayersChanged.
+            display.MainContainer.SetActive(false);
+            Utils.LogInfo($"[ARCHITECT V5] Display per {character.characterName} creato con architettura di layout corretta.");
             return display;
         }
 
-        // Metodo helper per applicare uno stile standard al testo
-        private static void ApplyTMProStyle(TextMeshProUGUI tmp, float fontSize, Color color, FontStyles style = FontStyles.Bold)
+        private void ApplyTMProStyle(TextMeshProUGUI tmp, float fontSize, Color color)
         {
-            if (gameFont == null)
-            {
-                // [ARCHITECT'S NOTE] API Obsoleta sostituita con FindAnyObjectByType, come suggerito da Unity.
+            if (gameFont == null) {
                 var connectionLog = Object.FindAnyObjectByType<PlayerConnectionLog>();
                 if (connectionLog != null && connectionLog.text != null && connectionLog.text.font != null)
                 {
@@ -270,7 +273,6 @@ namespace BackpackViewerMod.Patches
                 }
                 else
                 {
-                    // [ARCHITECT'S NOTE] Integrata la logica di fallback preferita dall'utente.
                     var fonts = Resources.FindObjectsOfTypeAll<TMP_FontAsset>();
                     gameFont = fonts.FirstOrDefault(f => f.faceInfo.familyName.Contains("Daruma")) 
                             ?? fonts.FirstOrDefault();
@@ -285,58 +287,35 @@ namespace BackpackViewerMod.Patches
                     }
                 }
             }
-
-            if (gameFont != null)
-            {
-                tmp.font = gameFont;
-            }
+            if (gameFont != null) tmp.font = gameFont;
             
             tmp.fontSize = fontSize;
             tmp.color = color;
-            tmp.fontStyle = style;
+            tmp.fontStyle = FontStyles.Bold;
+            tmp.alignment = TextAlignmentOptions.TopRight;
             tmp.raycastTarget = false;
-
-            var outline = tmp.gameObject.GetComponent<Outline>() ?? tmp.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0, 0, 0, 0.8f);
-            outline.effectDistance = new Vector2(1.2f, -1.2f);
+            tmp.outlineWidth = 0.12f;
+            tmp.outlineColor = new Color(0, 0, 0, 0.8f);
         }
 
-        // Posiziona la UI del giocatore locale nel suo punto fisso
-        private static void PositionLocalPlayerUI(PlayerBackpackDisplay display)
+        private void PositionUI(PlayerBackpackDisplay display, Vector2 anchoredPosition)
         {
-            var rect = display.MainContainer.GetComponent<RectTransform>();
-            rect.anchoredPosition = new Vector2(PADDING_RIGHT, PADDING_TOP);
+            display.MainContainer.GetComponent<RectTransform>().anchoredPosition = anchoredPosition;
+            UpdateDisplayIcons(display);
         }
-
-        // Posiziona le UI degli altri giocatori in sequenza
-        private static void PositionOtherPlayersUI(List<PlayerBackpackDisplay> otherDisplays, float startingHorizontalOffset)
-        {
-            float currentHorizontalOffset = startingHorizontalOffset;
-            // [ARCHITECT'S NOTE] Ora ordiniamo usando il nostro ID pulito e cachato.
-            foreach (var display in otherDisplays.OrderBy(d => d.TrackedPlayer.ActorID))
-            {
-                var rect = display.MainContainer.GetComponent<RectTransform>();
-                rect.anchoredPosition = new Vector2(currentHorizontalOffset, PADDING_TOP);
-                UpdateDisplayIcons(display);
-                
-                currentHorizontalOffset -= (rect.sizeDelta.x + HORIZONTAL_SPACING);
-            }
-        }
-
         
-        // Aggiorna le icone degli oggetti per una data UI
-        private static void UpdateDisplayIcons(PlayerBackpackDisplay display)
+        private void UpdateDisplayIcons(PlayerBackpackDisplay display)
         {
-            ItemInstanceData backpackInstanceData = display.TrackedPlayer.Character.player.backpackSlot.data;
-            if (backpackInstanceData == null) return;
+            BackpackSlot backpackSlot = display.TrackedPlayer.Character.player.backpackSlot;
+            if (backpackSlot.IsEmpty()) return;
 
-            if (backpackInstanceData.TryGetDataEntry(DataEntryKey.BackpackData, out BackpackData backpackData))
+            if (backpackSlot.data.TryGetDataEntry(DataEntryKey.BackpackData, out BackpackData backpackData))
             {
                 for (int i = 0; i < display.IconImages.Count && i < backpackData.itemSlots.Length; i++)
                 {
                     ItemSlot slotData = backpackData.itemSlots[i];
                     Image icon = display.IconImages[i];
-                    if (slotData.IsEmpty() || slotData.prefab == null || slotData.prefab.UIData == null)
+                    if (slotData.IsEmpty() || slotData.prefab?.UIData?.icon == null)
                     {
                         icon.enabled = false;
                     }
@@ -349,8 +328,6 @@ namespace BackpackViewerMod.Patches
             }
         }
     }
-    
-    // Estensione helper per creare Sprite da Texture2D in modo pulito e sicuro
     public static class TextureExtensions
     {
         public static Sprite ToSprite(this Texture2D texture)
