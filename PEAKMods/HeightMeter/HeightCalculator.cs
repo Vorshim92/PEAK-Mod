@@ -1,92 +1,167 @@
+// File: HeightCalculator.cs
+
 using UnityEngine;
 using System.Linq;
+using System.Collections.Generic; // Necessario per la Dictionary
 
 namespace HeightMeterMod
 {
     public class HeightCalculator : MonoBehaviour
     {
-        // Height bounds
         private float baseHeight = 0f;
-        private float peakHeight = 1920f; // Default fallback
-        
-        // Progress points from the game
-        private MountainProgressHandler.ProgressPoint[] progressPoints;
-        
-        // Conversion factor
+        private float peakHeight = 1920f;
         private float metersPerUnit = 1f;
+
+        // --- MODIFICA CHIAVE ---
+        // Ora usiamo una lista interna di ProgressMarker, che conterrà i dati FUSI.
+        private List<ProgressMarker> allMarkers = new List<ProgressMarker>();
         
         public bool IsInitialized { get; private set; }
         
+        // --- MODIFICA CHIAVE ---
+        // L'inizializzazione non riceve più dati, li CERCA da sola.
+        // Questo è il cuore della nuova architettura.
         public bool Initialize()
         {
-            // Try to get progress points from the game
-            var progressHandler = Object.FindAnyObjectByType<MountainProgressHandler>();
-            
-            if (progressHandler?.progressPoints != null && progressHandler.progressPoints.Length > 0)
+            var progressHandler = MountainProgressHandler.Instance;
+            var mapHandler = MapHandler.Instance;
+
+            // Controlli di robustezza: assicurati che entrambi i singleton siano pronti.
+            if (progressHandler == null || progressHandler.progressPoints == null || progressHandler.progressPoints.Length == 0)
             {
-                progressPoints = progressHandler.progressPoints;
-                
-                // Calculate height bounds from progress points
-                baseHeight = progressPoints[0].transform.position.z;
-                peakHeight = progressPoints.Last().transform.position.z;
-                
-                // Calculate conversion factor
-                float totalUnits = peakHeight - baseHeight;
-                if (totalUnits > 0) // Evita divisione per zero
+                Utils.LogError("HeightCalculator: MountainProgressHandler non è pronto o non ha punti.");
+                return false;
+            }
+            if (mapHandler == null || mapHandler.segments == null || mapHandler.segments.Length == 0)
+            {
+                Utils.LogError("HeightCalculator: MapHandler non è pronto o non ha segmenti.");
+                return false;
+            }
+
+            // Usiamo un dizionario per aggregare e rimuovere duplicati.
+            // La chiave è la posizione Z (altitudine), il valore è il nostro ProgressMarker.
+            var markerMap = new Dictionary<float, ProgressMarker>();
+
+            // 1. Aggrega i checkpoint MINORI da MountainProgressHandler
+            Utils.LogInfo($"Aggregating {progressHandler.progressPoints.Length} minor checkpoints...");
+            foreach (var point in progressHandler.progressPoints.Where(p => p != null && p.transform != null))
+            {
+                float zPos = point.transform.position.z;
+                // Arrotonda per evitare problemi di precisione float e unire punti molto vicini
+                float key = Mathf.Round(zPos * 10) / 10f; 
+                if (!markerMap.ContainsKey(key))
                 {
-                    metersPerUnit = 1920f / totalUnits;
+                    markerMap[key] = new ProgressMarker
+                    {
+                        Name = point.title,
+                        RawZPosition = zPos, // Salviamo la Z grezza
+                        IsReached = point.Reached
+                    };
                 }
-                
-                Utils.LogInfo($"Height bounds initialized: Base={baseHeight:F2}, Peak={peakHeight:F2}, MetersPerUnit={metersPerUnit:F2}");
-                IsInitialized = true; // Imposta lo stato su inizializzato
-                return true; // Successo!
             }
-            else
+            
+            // 2. Aggrega i segmenti MAGGIORI da MapHandler
+            Utils.LogInfo($"Aggregating {mapHandler.segments.Length} major segments...");
+            for (int i = 0; i < mapHandler.segments.Length; i++)
             {
-                Utils.LogWarning("Could not find progress points. Waiting for valid game state...");
-                IsInitialized = false; // Non inizializzato
-                return false; // Fallimento!
+                var segment = mapHandler.segments[i];
+                if (segment != null && segment.reconnectSpawnPos != null)
+                {
+                    float zPos = segment.reconnectSpawnPos.position.z;
+                    float key = Mathf.Round(zPos * 10) / 10f;
+                    
+                    // Aggiungi solo se non c'è già un checkpoint minore alla stessa altezza
+                    if (!markerMap.ContainsKey(key))
+                    {
+                        markerMap[key] = new ProgressMarker
+                        {
+                            // Usa il nome dell'enum Segment corrispondente
+                            Name = ((Segment)i).ToString(), 
+                            RawZPosition = zPos,
+                            // Un segmento è "raggiunto" se il giocatore ha superato la sua Z
+                            IsReached = Character.localCharacter != null && Character.localCharacter.Center.z > zPos
+                        };
+                    }
+                }
             }
+
+            // Determina i limiti di altezza DOPO aver raccolto tutti i punti
+            if (markerMap.Count == 0)
+            {
+                Utils.LogError("No markers could be aggregated.");
+                return false;
+            }
+
+            baseHeight = markerMap.Values.Min(m => m.RawZPosition);
+            peakHeight = markerMap.Values.Max(m => m.RawZPosition);
+            
+            float totalUnits = peakHeight - baseHeight;
+            if (totalUnits > 0)
+            {
+                metersPerUnit = 1920f / totalUnits;
+            }
+            
+            // Ora che abbiamo i limiti e il fattore di conversione, calcoliamo i valori finali
+            allMarkers = markerMap.Values.OrderBy(m => m.RawZPosition).ToList();
+            foreach (var marker in allMarkers)
+            {
+                marker.NormalizedHeight = GetNormalizedHeight(marker.RawZPosition);
+                marker.HeightInMeters = GetHeightInMeters(marker.RawZPosition);
+            }
+            
+            Utils.LogInfo($"Height bounds finalized: Base={baseHeight:F2}, Peak={peakHeight:F2}, MetersPerUnit={metersPerUnit:F2}");
+            Utils.LogInfo($"Aggregation complete. Total unique markers: {allMarkers.Count}");
+            IsInitialized = true;
+            return true;
+        }
+
+        // --- MODIFICA CHIAVE ---
+        // GetProgressMarkers ora restituisce semplicemente la lista pre-calcolata.
+        public List<ProgressMarker> GetProgressMarkers()
+        {
+            return allMarkers;
+        }
+
+        // --- NUOVA CLASSE INTERNA ---
+        // Modifichiamo ProgressMarker per contenere i dati grezzi prima del calcolo finale
+        public class ProgressMarker
+        {
+            public string Name { get; set; }
+            public float RawZPosition { get; set; } // Z grezza prima della normalizzazione
+            public float NormalizedHeight { get; set; }
+            public float HeightInMeters { get; set; }
+            public bool IsReached { get; set; }
         }
         
-        // Get normalized height (0-1) for UI positioning
+        // Il resto dei metodi (GetNormalizedHeight, GetHeightInMeters, etc.) rimane uguale
+        // ma assicurati che usino `baseHeight` e `peakHeight` calcolati internamente.
         public float GetNormalizedHeight(float zPosition)
         {
             if (peakHeight <= baseHeight) return 0f;
-            
             return Mathf.Clamp01((zPosition - baseHeight) / (peakHeight - baseHeight));
         }
         
-        // Get height in meters for display
         public float GetHeightInMeters(float zPosition)
         {
             float relativeHeight = zPosition - baseHeight;
             return Mathf.Max(0f, relativeHeight * metersPerUnit);
         }
-        
-        // Get the next checkpoint info
+
         public CheckpointInfo GetNextCheckpoint(float currentZ)
         {
-            if (progressPoints == null || progressPoints.Length == 0)
-                return null;
-                
-            // Trova il prossimo checkpoint non raggiunto E VALIDO
-            foreach (var point in progressPoints.Where(p => p != null && p.transform != null))
+            if (allMarkers == null || allMarkers.Count == 0) return null;
+
+            foreach (var point in allMarkers.Where(p => !p.IsReached && p.RawZPosition > currentZ))
             {
-                if (!point.Reached && point.transform.position.z > currentZ)
+                float distanceInMeters = (point.RawZPosition - currentZ) * metersPerUnit;
+                return new CheckpointInfo
                 {
-                    float distanceInMeters = (point.transform.position.z - currentZ) * metersPerUnit;
-                    return new CheckpointInfo
-                    {
-                        Name = point.title,
-                        DistanceInMeters = distanceInMeters,
-                        NormalizedHeight = GetNormalizedHeight(point.transform.position.z)
-                    };
-                }
+                    Name = point.Name,
+                    DistanceInMeters = distanceInMeters,
+                    NormalizedHeight = GetNormalizedHeight(point.RawZPosition)
+                };
             }
 
-            
-            // Player is above all checkpoints
             if (currentZ < peakHeight)
             {
                 float distanceToPeak = (peakHeight - currentZ) * metersPerUnit;
@@ -97,42 +172,14 @@ namespace HeightMeterMod
                     NormalizedHeight = 1f
                 };
             }
-            
             return null;
         }
-        
-        // Get all progress points for UI markers
-        public ProgressMarker[] GetProgressMarkers()
-        {
-            if (progressPoints == null) return new ProgressMarker[0];
-            
-            // Aggiungi un filtro .Where() per ignorare i punti con transform nullo
-            return progressPoints
-                .Where(p => p != null && p.transform != null) // <-- QUESTA È LA CORREZIONE
-                .Select(p => new ProgressMarker
-                {
-                    Name = p.title,
-                    NormalizedHeight = GetNormalizedHeight(p.transform.position.z),
-                    HeightInMeters = GetHeightInMeters(p.transform.position.z),
-                    IsReached = p.Reached
-                }).ToArray();
-        }
 
-        
-        // Helper classes for data
         public class CheckpointInfo
         {
             public string Name { get; set; }
             public float DistanceInMeters { get; set; }
             public float NormalizedHeight { get; set; }
-        }
-        
-        public class ProgressMarker
-        {
-            public string Name { get; set; }
-            public float NormalizedHeight { get; set; }
-            public float HeightInMeters { get; set; }
-            public bool IsReached { get; set; }
         }
     }
 }

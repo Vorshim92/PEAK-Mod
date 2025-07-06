@@ -5,90 +5,70 @@ namespace HeightMeterMod
 {
     public class HeightMeterManager : MonoBehaviour
     {
-        // Components
         private HeightCalculator heightCalculator;
         private PlayerTracker playerTracker;
         private HeightMeterUI ui;
         
-        // Update interval for performance
         private float updateInterval => PluginConfig.updateInterval.Value;
         private float lastUpdateTime;
         private bool isFullyInitialized = false;
 
-
         private void Awake()
         {
-            // Crea i componenti. Ora sono "dormienti".
             heightCalculator = gameObject.AddComponent<HeightCalculator>();
             playerTracker = gameObject.AddComponent<PlayerTracker>();
             ui = gameObject.AddComponent<HeightMeterUI>();
             
-            Utils.LogInfo("HeightMeterManager and components created.");
-        }
-        
-        private void Start()
-        {
-            // Tenta di inizializzare. Non c'è bisogno di coroutine o attese complesse.
-            TryInitialize();
+            // Iscriviti all'evento della patch
+            Patches.MountainProgressPatches.OnProgressPointsAvailable += OnProgressPointsReceived;
+
+            Utils.LogInfo("HeightMeterManager created and waiting for progress points...");
         }
 
-        
-        private void TryInitialize()
+        // NUOVO METODO: Il trigger che avvia tutto
+        private void OnProgressPointsReceived(MountainProgressHandler.ProgressPoint[] points)
         {
-            Utils.LogInfo("Attempting to initialize HeightMeter...");
+            Utils.LogInfo("Game state seems ready. Attempting full system initialization...");
 
-            // Tenta di inizializzare il calcolatore.
-            // Se fallisce, non siamo nello stato di gioco corretto. Ci fermiamo qui.
+            if (isFullyInitialized) return;
+
+            // --- MODIFICA CHIAVE ---
+            // Chiama Initialize() senza parametri. Il calcolatore farà il resto.
             if (!heightCalculator.Initialize())
             {
-                Utils.LogWarning("Initialization failed: Not in a valid game state. Manager will remain idle.");
+                Utils.LogError("Full initialization failed: HeightCalculator could not aggregate data. Will retry.");
+                // Non impostare `isFullyInitialized` a true, così potrebbe riprovare al prossimo trigger
                 return;
             }
 
-            // --- SUCCESSO! Siamo sulla montagna. Attiviamo tutto. ---
-            Utils.LogInfo("Valid game state detected. Proceeding with full initialization.");
-
+            // A questo punto, l'inizializzazione può procedere in sicurezza
             try
             {
-                // 1. Iscriviti agli eventi del tracker
                 playerTracker.OnPlayerAdded += OnPlayerAdded;
                 playerTracker.OnPlayerRemoved += OnPlayerRemoved;
-                Utils.LogInfo("Step 1: Subscribed to PlayerTracker events.");
-
-                // 2. Inizializza la UI
-                ui.Initialize(heightCalculator);
-                // Utils.LogInfo("Step 2: HeightMeterUI initialized.");
-
-                // 3. Inizializza il PlayerTracker
-                playerTracker.Initialize();
-                // Utils.LogInfo("Step 3: PlayerTracker initialized.");
                 
-                // 4. Ciclo di sicurezza per aggiungere giocatori già tracciati
-                // foreach (var character in playerTracker.GetTrackedCharacters())
-                // {
-                //     OnPlayerAdded(character);
-                // }
-                // Utils.LogInfo("Step 4: Ensured all tracked players are added to UI.");
+                ui.Initialize(heightCalculator);
+                ui.CreateProgressMarkers(); // Ora userà la lista aggregata
+
+                playerTracker.Initialize();
 
                 isFullyInitialized = true;
-                Utils.LogInfo("SUCCESS: HeightMeter is now fully active.");
+                Utils.LogInfo("SUCCESS: HeightMeter is now fully active with aggregated data.");
             }
             catch (System.Exception ex)
             {
-                Utils.LogError("CRITICAL ERROR during initialization sequence!");
-                Utils.LogError(ex.ToString());
+                Utils.LogError($"CRITICAL ERROR during initialization sequence: {ex}");
             }
         }
 
         
+        // Il metodo Start() non è più necessario per l'inizializzazione principale.
+        // private void Start() { ... } // RIMUOVERE O SVUOTARE
+
         private void Update()
         {
-            if (!isFullyInitialized || !PluginConfig.isPluginEnable.Value)
-            {
-                return; // Non fare nulla se non siamo attivi
-            }
+            if (!isFullyInitialized || !PluginConfig.isPluginEnable.Value) return;
             
-            // La logica di Update è corretta
             if (!ui.IsVisible) ui.SetVisible(true);
             
             if (Time.time - lastUpdateTime < updateInterval) return;
@@ -137,6 +117,8 @@ namespace HeightMeterMod
         
         private void OnDestroy()
         {
+            // Pulisci le iscrizioni agli eventi!
+            Patches.MountainProgressPatches.OnProgressPointsAvailable -= OnProgressPointsReceived;
             if (playerTracker != null)
             {
                 playerTracker.OnPlayerAdded -= OnPlayerAdded;

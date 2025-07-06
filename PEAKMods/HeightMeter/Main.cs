@@ -49,6 +49,9 @@ namespace HeightMeterMod
             
             Utils.LogInfo("Run started, creating HeightMeter manager");
             
+            // Resetta lo stato della patch
+            Patches.MountainProgressPatches.ResetState();
+            
             if (heightMeterManager != null)
             {
                 Destroy(heightMeterManager);

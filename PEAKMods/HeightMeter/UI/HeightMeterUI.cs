@@ -28,6 +28,7 @@ namespace HeightMeterMod
         
         // Progress markers
         private List<GameObject> progressMarkers = new List<GameObject>();
+
         
         // UI settings
         private const float BAR_WIDTH = 12f;
@@ -68,10 +69,10 @@ namespace HeightMeterMod
             InitializeSystems();
             
             // Create progress markers if enabled
-            if (PluginConfig.showProgressMarkers.Value)
-            {
-                CreateProgressMarkers();
-            }
+            // if (PluginConfig.showProgressMarkers.Value)
+            // {
+            //     CreateProgressMarkers();
+            // }
             
             isInitialized = true;
             Utils.LogInfo("HeightMeterUI initialized with enhanced systems");
@@ -281,15 +282,27 @@ namespace HeightMeterMod
             return labelObj;
         }
         
-        private void CreateProgressMarkers()
+        public void CreateProgressMarkers()
         {
-            var markers = heightCalculator.GetProgressMarkers();
-            
-            foreach (var marker in markers)
+            if (heightCalculator == null || !PluginConfig.showProgressMarkers.Value) return;
+
+            // Pulisci i marker esistenti per evitare duplicati
+            foreach (var marker in progressMarkers)
             {
-                CreateProgressMarker(marker);
+                Destroy(marker);
             }
+            progressMarkers.Clear();
+
+            var markersData = heightCalculator.GetProgressMarkers();
+            
+            foreach (var marker in markersData)
+            {
+                CreateProgressMarker(marker); // Il metodo CreateProgressMarker rimane lo stesso
+            }
+
+            Utils.LogInfo($"Created {progressMarkers.Count} progress markers on the UI.");
         }
+
         
         private void CreateProgressMarker(HeightCalculator.ProgressMarker marker)
         {
