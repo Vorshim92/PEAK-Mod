@@ -11,7 +11,6 @@ namespace HeightMeterMod
         private GameObject marker;
         private GameObject label;
         private TextMeshProUGUI nameText;
-        private TextMeshProUGUI heightText;
         private TextMeshProUGUI checkpointText;
         private Image markerImage;
         private CanvasGroup canvasGroup;
@@ -95,91 +94,104 @@ namespace HeightMeterMod
         
         private void CreateUIElements()
         {
-            // FIX: Validazione prima di procedere
+            // [ARCHITECT'S NOTE] Validazione robusta all'inizio del metodo.
             if (rectTransform == null)
             {
                 Utils.LogError("CreateUIElements: rectTransform is null!");
                 return;
             }
-            
+
             // Configura il RectTransform principale
             rectTransform.anchorMin = new Vector2(0f, 0f);
             rectTransform.anchorMax = new Vector2(0f, 0f);
             rectTransform.pivot = new Vector2(0f, 0.5f);
-            
-            // Create marker (colored bar)
+
+            // --- Marker (invariato) ---
             marker = new GameObject("Marker");
             marker.transform.SetParent(transform, false);
-            
             var markerRect = marker.AddComponent<RectTransform>();
             markerRect.anchorMin = new Vector2(0f, 0.5f);
             markerRect.anchorMax = new Vector2(0f, 0.5f);
             markerRect.pivot = new Vector2(0.5f, 0.5f);
             markerRect.sizeDelta = new Vector2(16f, 4f);
-            // Calcola il centro della barra principale e posiziona il marker lì
             if (barRect != null) {
                 float barWidth = barRect.sizeDelta.x;
                 markerRect.anchoredPosition = new Vector2(barWidth / 2f, 0f);
             } else {
-                markerRect.anchoredPosition = new Vector2(0f, 0f); // Fallback
+                markerRect.anchoredPosition = new Vector2(0f, 0f);
             }
-
             markerImage = marker.AddComponent<Image>();
-            
-            // Create label container
+
+            // --- Label Container (Riprogettato) ---
             label = new GameObject("Label");
             label.transform.SetParent(transform, false);
-            
-            // --- MODIFICA 4: Salviamo il riferimento a labelRect ---
-            labelRect = label.AddComponent<RectTransform>(); // ERA UNA VARIABILE LOCALE, ORA ASSEGNA AL CAMPO
+            labelRect = label.AddComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 0.5f);
             labelRect.anchorMax = new Vector2(0f, 0.5f);
             labelRect.pivot = new Vector2(0f, 0.5f);
-            // La posizione iniziale del label è a destra del marker
-            labelRect.anchoredPosition = new Vector2(25f, 0f); 
+            labelRect.anchoredPosition = new Vector2(25f, 0f);
 
-            
-            // Semi-transparent background
-            var bgImage = label.AddComponent<Image>();
-            bgImage.color = new Color(0f, 0f, 0f, 0.2f);
-            
-            // Create name text
+            // [ARCHITECT'S NOTE] #1: RIMOZIONE del background solido.
+            // Il componente Image non viene più aggiunto al label.
+            // var bgImage = label.AddComponent<Image>(); // RIMOSSO
+
+            // [ARCHITECT'S NOTE] #2: AGGIUNTA del ContentSizeFitter per un layout dinamico.
+            var layoutGroup = label.AddComponent<VerticalLayoutGroup>();
+            layoutGroup.childAlignment = TextAnchor.MiddleLeft;
+            layoutGroup.childControlWidth = true; // Permette ai figli di controllare la larghezza
+            layoutGroup.childControlHeight = true; // Permette ai figli di controllare l'altezza
+
+            var contentFitter = label.AddComponent<ContentSizeFitter>();
+            contentFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
+            contentFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // --- Name Text (Migliorato) ---
             var nameObj = new GameObject("Name");
             nameObj.transform.SetParent(label.transform, false);
-            
             nameText = nameObj.AddComponent<TextMeshProUGUI>();
-            if (font != null) nameText.font = font;
-            nameText.fontSize = 16f;
-            nameText.fontStyle = FontStyles.Bold;
+            
+            // [ARCHITECT'S NOTE] #3: APPLICAZIONE dell'outline e ombra al font.
+            ApplyFontStyles(nameText, font, 16f, FontStyles.Bold);
+
             nameText.alignment = TextAlignmentOptions.Left;
-            nameText.raycastTarget = false; // Performance
+            nameText.raycastTarget = false;
             
-            var nameRect = nameObj.GetComponent<RectTransform>();
-            nameRect.anchorMin = new Vector2(0f, 0.5f);
-            nameRect.anchorMax = new Vector2(0f, 0.5f);
-            nameRect.pivot = new Vector2(0f, 0.5f);
-            nameRect.anchoredPosition = new Vector2(5f, 0f);
+            // Il RectTransform del testo non ha più una posizione fissa, sarà gestito dal VerticalLayoutGroup.
             
-            // Create checkpoint text
+            // --- Checkpoint Text (Migliorato) ---
             var checkpointObj = new GameObject("Checkpoint");
             checkpointObj.transform.SetParent(label.transform, false);
-            
             checkpointText = checkpointObj.AddComponent<TextMeshProUGUI>();
-            if (font != null) checkpointText.font = font;
-            checkpointText.fontSize = 12f;
+            
+            ApplyFontStyles(checkpointText, font, 12f, FontStyles.Normal, new Color(0.8f, 0.8f, 0.8f, 0.9f));
+            
             checkpointText.alignment = TextAlignmentOptions.Left;
-            checkpointText.color = new Color(0.8f, 0.8f, 0.8f, 0.8f);
             checkpointText.raycastTarget = false;
             checkpointText.gameObject.SetActive(false);
             
-            var checkpointRect = checkpointObj.GetComponent<RectTransform>();
-            checkpointRect.anchorMin = new Vector2(0f, 0.5f);
-            checkpointRect.anchorMax = new Vector2(0f, 0.5f);
-            checkpointRect.pivot = new Vector2(0f, 0.5f);
-            checkpointRect.anchoredPosition = new Vector2(5f, -20f);
+            // La sizeDelta del label non è più fissa. Sarà determinata dal contenuto.
+            // labelRect.sizeDelta = new Vector2(150f, 40f); // RIMOSSO
+        }
+        
+        /// <summary>
+        /// Metodo helper centralizzato per applicare stili coerenti a TextMeshPro.
+        /// Questo include il font, la dimensione, il colore e l'effetto outline/shadow.
+        /// </summary>
+        private void ApplyFontStyles(TextMeshProUGUI textComponent, TMP_FontAsset fontAsset, float fontSize, FontStyles style, Color? color = null)
+        {
+            if (textComponent == null) return;
             
-            // Update label size
-            labelRect.sizeDelta = new Vector2(150f, 40f); // Fixed size for now
+            textComponent.font = fontAsset;
+            textComponent.fontSize = fontSize;
+            textComponent.fontStyle = style;
+            if (color.HasValue) textComponent.color = color.Value;
+            
+            // [ARCHITECT'S NOTE] #4: La tecnica di leggibilità chiave.
+            // Abilitiamo l'outline direttamente sul materiale del font.
+            // Questo crea un contorno nitido senza usare componenti esterni.
+            textComponent.outlineWidth = 0.15f; // Spessore relativo alla dimensione del font
+            textComponent.outlineColor = new Color(0, 0, 0, 0.75f); // Colore dell'outline
+        
         }
         
         public void Initialize(Character targetCharacter)
@@ -189,38 +201,38 @@ namespace HeightMeterMod
                 Utils.LogError("PlayerHeightIndicator.Initialize: Not setup yet!");
                 return;
             }
-            
+
             if (targetCharacter == null)
             {
                 Utils.LogError("PlayerHeightIndicator.Initialize: targetCharacter is null!");
                 return;
             }
-            
+
             character = targetCharacter;
-            
+
             // FIX: Validazione completa prima di accedere ai membri
-            if (character.refs == null || 
-                character.refs.customization == null || 
-                character.refs.view == null || 
+            if (character.refs == null ||
+                character.refs.customization == null ||
+                character.refs.view == null ||
                 character.refs.view.Owner == null)
             {
                 Utils.LogError("PlayerHeightIndicator.Initialize: Character references are incomplete!");
                 return;
             }
-            
+
             // Get player color
             var playerColor = character.refs.customization.PlayerColor;
-            
+
             // Ensure minimum brightness
             Color.RGBToHSV(playerColor, out float h, out float s, out float v);
             v = Mathf.Max(v, 0.8f);
             s = Mathf.Min(s, 0.8f);
-            
+
             var adjustedColor = Color.HSVToRGB(h, s, v);
-            
+
             if (markerImage != null) markerImage.color = playerColor;
             if (nameText != null) nameText.color = adjustedColor;
-            
+
             // Local player special treatment
             if (character.IsLocal)
             {
@@ -229,14 +241,14 @@ namespace HeightMeterMod
                     var rect = marker.GetComponent<RectTransform>();
                     if (rect != null) rect.sizeDelta = new Vector2(20f, 6f);
                 }
-                
+
                 if (nameText != null)
                 {
                     nameText.fontSize = 18f;
                     nameText.fontStyle = FontStyles.Bold;
                 }
             }
-            
+
             // Show the indicator
             Show();
         }

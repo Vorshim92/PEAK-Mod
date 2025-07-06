@@ -20,7 +20,6 @@ namespace HeightMeterMod
         private RectTransform barRect;
         
         // Systems
-        private UIAnchorSystem anchorSystem;
         private PlayerClusteringSystem clusteringSystem;
         
         // Player indicators
@@ -108,7 +107,6 @@ namespace HeightMeterMod
             {
                 heightThreshold = 0.025f,     // 2.5% threshold per raggruppare
                 verticalSpacing = 22f,        // Spaziatura verticale tra i nomi
-                alternateOffset = true        // Offset alternato per migliore leggibilità
             };
             
             clusteringSystem.Initialize(clusterConfig);

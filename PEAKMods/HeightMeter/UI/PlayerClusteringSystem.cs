@@ -6,197 +6,177 @@ namespace HeightMeterMod
 {
     /// <summary>
     /// Sistema intelligente per raggruppare e distribuire visivamente
-    /// indicatori di giocatori che si trovano ad altezze simili
+    /// indicatori di giocatori che si trovano ad altezze simili.
+    /// Versione 2.0: Algoritmo O(n log n) e stacking verticale basato sull'altezza.
     /// </summary>
     public class PlayerClusteringSystem : MonoBehaviour
     {
         [System.Serializable]
         public class ClusterConfig
         {
-            public float heightThreshold = 0.02f;    // 2% di differenza per raggruppare
-            public float verticalSpacing = 25f;      // Spaziatura verticale per stacking
-            public bool alternateOffset = true;      // Offset alternato per leggibilità
+            public float heightThreshold = 0.025f;   // 2.5% di differenza per raggruppare
+            public float verticalSpacing = 22f;      // Spaziatura verticale per stacking
         }
-        
+
         public class PlayerCluster
         {
-            public float averageHeight;
             public List<PlayerHeightIndicator> indicators = new List<PlayerHeightIndicator>();
             
-            public void CalculateAverageHeight()
-            {
-                if (indicators.Count == 0) return;
-                averageHeight = indicators.Average(i => i.CurrentPosition);
-            }
+            // [ARCHITECT'S NOTE] La media non è più necessaria. La logica di clustering
+            // si basa sulla prossimità relativa, non su un centroide mobile.
         }
-        
+
         private ClusterConfig config;
         private Dictionary<PlayerHeightIndicator, Vector2> targetOffsets = new Dictionary<PlayerHeightIndicator, Vector2>();
         private List<PlayerCluster> activeClusters = new List<PlayerCluster>();
-        
+
         // Cache per performance
         private int lastIndicatorCount = 0;
         private float lastClusteringTime = 0f;
         private const float CLUSTERING_INTERVAL = 0.1f; // Ricalcola ogni 100ms
-        
+
         public void Initialize(ClusterConfig clusterConfig)
         {
             config = clusterConfig;
         }
-        
+
         public void ProcessIndicators(Dictionary<Character, PlayerHeightIndicator> indicators)
         {
-            // Ottimizzazione: ricalcola solo se necessario
             if (ShouldRecalculateClusters(indicators.Count))
             {
-                RecalculateClusters(indicators.Values.ToList());
+                // [ARCHITECT'S NOTE] Il metodo è stato completamente riscritto per efficienza e correttezza.
+                UpdateClusters(indicators.Values.ToList());
                 lastIndicatorCount = indicators.Count;
                 lastClusteringTime = Time.time;
             }
-            
-            // Applica offset smooth
+
             ApplyOffsets();
         }
-        
+
         private bool ShouldRecalculateClusters(int currentCount)
         {
-            return currentCount != lastIndicatorCount || 
-                   Time.time - lastClusteringTime > CLUSTERING_INTERVAL;
+            return currentCount != lastIndicatorCount || Time.time - lastClusteringTime > CLUSTERING_INTERVAL;
         }
-        
-        private void RecalculateClusters(List<PlayerHeightIndicator> indicators)
+
+        /// <summary>
+        /// Algoritmo di clustering e calcolo degli offset completamente rivisto.
+        /// Complessità: O(n log n) a causa dell'ordinamento iniziale.
+        /// </summary>
+        private void UpdateClusters(List<PlayerHeightIndicator> allIndicators)
         {
             activeClusters.Clear();
             targetOffsets.Clear();
-            
-            if (indicators.Count <= 1)
-            {
-                // Reset offset per indicatore singolo
-                if (indicators.Count == 1)
-                {
-                    targetOffsets[indicators[0]] = Vector2.zero;
-                }
-                return;
-            }
-            
-            // Ordina per altezza
-            var sortedIndicators = indicators
-                .Where(i => i != null && i.gameObject.activeSelf)
-                .OrderBy(i => i.CurrentPosition)
+
+            var activeIndicators = allIndicators
+                .Where(i => i != null && i.gameObject.activeInHierarchy)
                 .ToList();
-            
-            // Crea clusters
-            foreach (var indicator in sortedIndicators)
+
+            // Resetta tutti gli offset esistenti. Questo garantisce che gli indicatori
+            // che escono da un cluster tornino alla loro posizione di default (0,0).
+            foreach (var indicator in activeIndicators)
             {
-                var cluster = FindOrCreateCluster(indicator);
-                cluster.indicators.Add(indicator);
+                targetOffsets[indicator] = Vector2.zero;
             }
-            
-            // Calcola offset per ogni cluster
-            foreach (var cluster in activeClusters)
+
+            if (activeIndicators.Count <= 1)
             {
-                CalculateClusterOffsets(cluster);
-            }
-        }
-        
-        private PlayerCluster FindOrCreateCluster(PlayerHeightIndicator indicator)
-        {
-            foreach (var cluster in activeClusters)
-            {
-                if (Mathf.Abs(cluster.averageHeight - indicator.CurrentPosition) <= config.heightThreshold)
-                {
-                    // Ricalcola media includendo il nuovo indicatore
-                    cluster.CalculateAverageHeight();
-                    return cluster;
-                }
-            }
-            
-            // Crea nuovo cluster
-            var newCluster = new PlayerCluster();
-            newCluster.averageHeight = indicator.CurrentPosition;
-            activeClusters.Add(newCluster);
-            return newCluster;
-        }
-        
-        private void CalculateClusterOffsets(PlayerCluster cluster)
-        {
-            int count = cluster.indicators.Count;
-            if (count == 1)
-            {
-                targetOffsets[cluster.indicators[0]] = Vector2.zero;
                 return;
             }
-            
-            // Ordina per nome per consistenza visiva
-            cluster.indicators.Sort((a, b) => 
-                a.character.name.CompareTo(b.character.name));
-            
-            // NUOVO: Usa sempre stacking verticale per i cluster
-            CalculateVerticalStackingOffsets(cluster);
+
+            // [ARCHITECT'S NOTE] #1: Sort-Once. Ordiniamo TUTTI gli indicatori una sola volta.
+            // Questo è il fondamento dell'algoritmo efficiente.
+            var sortedIndicators = activeIndicators.OrderBy(i => i.CurrentPosition).ToList();
+
+            // [ARCHITECT'S NOTE] #2: Cluster-Once. Creiamo i cluster in un unico passaggio.
+            PlayerCluster currentCluster = null;
+            for (int i = 0; i < sortedIndicators.Count; i++)
+            {
+                var indicator = sortedIndicators[i];
+                if (currentCluster == null)
+                {
+                    currentCluster = new PlayerCluster();
+                    currentCluster.indicators.Add(indicator);
+                    activeClusters.Add(currentCluster);
+                }
+                else
+                {
+                    // Controlla se l'indicatore attuale è abbastanza vicino all'ULTIMO indicatore aggiunto al cluster.
+                    var lastInCluster = currentCluster.indicators.Last();
+                    if (Mathf.Abs(indicator.CurrentPosition - lastInCluster.CurrentPosition) <= config.heightThreshold)
+                    {
+                        currentCluster.indicators.Add(indicator);
+                    }
+                    else
+                    {
+                        // L'indicatore è troppo lontano, inizia un nuovo cluster.
+                        currentCluster = new PlayerCluster();
+                        currentCluster.indicators.Add(indicator);
+                        activeClusters.Add(currentCluster);
+                    }
+                }
+            }
+
+            // [ARCHITECT'S NOTE] #3: Calculate Offsets. Calcoliamo gli offset per ogni cluster.
+            foreach (var cluster in activeClusters)
+            {
+                // Saltiamo i "cluster" con un solo membro, il loro offset è già Vector2.zero.
+                if (cluster.indicators.Count <= 1) continue;
+
+                CalculateVerticalStackingOffsets(cluster);
+            }
         }
-        
+
+        /// <summary>
+        /// Calcola gli offset per un singolo cluster, impilando verticalmente
+        /// gli indicatori in base alla loro altezza reale.
+        /// </summary>
         private void CalculateVerticalStackingOffsets(PlayerCluster cluster)
         {
-            int count = cluster.indicators.Count;
+            // [ARCHITECT'S NOTE] #4: Height-First Principle. Ordiniamo per altezza DISCENDENTE.
+            // Chi è più in alto nel gioco (valore CurrentPosition maggiore) deve stare in cima allo stack (offset Y maggiore).
+            var sortedByHeight = cluster.indicators.OrderByDescending(i => i.CurrentPosition).ToList();
             
-            // Impila verticalmente i nomi
+            int count = sortedByHeight.Count;
+            
             for (int i = 0; i < count; i++)
             {
-                // Offset verticale: ogni nome è spostato di 25 pixel sopra il precedente
-                float yOffset = i * config.verticalSpacing;
+                var indicator = sortedByHeight[i];
                 
-                // Piccolo offset orizzontale alternato per leggibilità (zigzag)
+                // L'offset Y è basato sulla posizione nell'ordinamento (i).
+                // L'indicatore più in alto (i=0) ottiene l'offset Y più grande.
+                // Invertiamo l'ordine per avere lo stacking verso l'alto
+                float yOffset = (count - 1 - i) * config.verticalSpacing;
+                
+                // [ARCHITECT'S NOTE] #5: Simplicity. L'offset X è sempre 0 per uno stack pulito.
+                // La logica "zig-zag" è stata rimossa.
                 float xOffset = 0f;
-                if (config.alternateOffset && count > 2)
-                {
-                    xOffset = (i % 2 == 0) ? 0f : 30f;
-                }
                 
-                targetOffsets[cluster.indicators[i]] = new Vector2(xOffset, yOffset);
+                targetOffsets[indicator] = new Vector2(xOffset, yOffset);
             }
         }
-        
+
         private void ApplyOffsets()
         {
             foreach (var kvp in targetOffsets)
             {
-                if (kvp.Key != null && kvp.Key.gameObject.activeSelf)
+                if (kvp.Key != null && kvp.Key.gameObject.activeInHierarchy)
                 {
                     kvp.Key.SetOffset(kvp.Value);
                 }
             }
         }
         
-        // API pubblica
+        // --- API Pubbliche (invariate) ---
         public Vector2 GetIndicatorOffset(PlayerHeightIndicator indicator)
         {
             return targetOffsets.TryGetValue(indicator, out Vector2 offset) ? offset : Vector2.zero;
         }
-        
+
         public int GetClusterCount() => activeClusters.Count;
         
         public PlayerCluster GetLargestCluster()
         {
             return activeClusters.OrderByDescending(c => c.indicators.Count).FirstOrDefault();
-        }
-        
-        // Debug visualization
-        private void OnDrawGizmos()
-        {
-            if (!Application.isPlaying || activeClusters == null) return;
-            
-            foreach (var cluster in activeClusters)
-            {
-                Gizmos.color = Color.yellow;
-                foreach (var indicator in cluster.indicators)
-                {
-                    if (indicator != null && targetOffsets.TryGetValue(indicator, out Vector2 offset))
-                    {
-                        Vector3 worldPos = indicator.transform.position;
-                        Gizmos.DrawWireSphere(worldPos, 10f);
-                    }
-                }
-            }
         }
     }
 }
