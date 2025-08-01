@@ -210,7 +210,6 @@ namespace BackpackViewerMod.Patches
             slotsContentFitter.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             
             float slotSize = DEBUG_SLOT_SIZE * scale;
-            Utils.LogInfo($"[ARCHITECT-DIAGNOSTIC] Creazione slot per '{trackedPlayer.Character.characterName}'. Scala: {scale}, Dimensione Slot Calcolata: {slotSize}");
             float borderWidth = 2.5f * scale;
 
             for (int i = 0; i < 4; i++)
@@ -258,7 +257,6 @@ namespace BackpackViewerMod.Patches
             // Torniamo alla logica semplice: il container viene creato inattivo.
             // Sarà gestito da OnTrackedPlayersChanged.
             display.MainContainer.SetActive(false);
-            Utils.LogInfo($"[ARCHITECT V5] Display per {character.characterName} creato con architettura di layout corretta.");
             return display;
         }
 

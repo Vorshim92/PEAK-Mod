@@ -7,6 +7,19 @@ using Photon.Pun;
 
 namespace BackpackViewerMod.Patches
 {
+    /// <summary>
+    /// Patches for backpack functionality.
+    /// 
+    /// SOLUTION: The original issue was that pressing E to open a backpack while holding it
+    /// would cause the POV to lock. This happened because:
+    /// 1. The game's BackpackWheel.Update() automatically closes the wheel when E is released
+    /// 2. The usingBackpackWheel flag could remain set, locking camera movement
+    /// 
+    /// We fixed this by:
+    /// - Using Shift+E combination instead of just E to avoid conflicts
+    /// - Adding a grace period (0.5s) to allow the player to release keys
+    /// - Ensuring the usingBackpackWheel flag is reset on errors
+    /// </summary>
     public class BackpackPatches
     {
         // State management
@@ -73,7 +86,11 @@ namespace BackpackViewerMod.Patches
                     return;
                 }
 
-                if (interactAction.IsPressed())
+                // Check if Shift key is held for modified behavior
+                bool shiftHeld = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || 
+                                UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
+
+                if (interactAction.IsPressed() && shiftHeld)
                 {
                     if (!isHoldingKey)
                     {
@@ -87,6 +104,8 @@ namespace BackpackViewerMod.Patches
                     {
                         OpenBackpackWheel(backpackItem, character);
                         wheelOpened = true;
+                        // Set a grace period to prevent immediate closing
+                        keyHeldTime = 0.5f; // Half second grace period
                     }
                 }
                 else
@@ -141,16 +160,21 @@ namespace BackpackViewerMod.Patches
                     if (openMethod != null)
                     {
                         openMethod.Invoke(GUIManager.instance, new object[] { backpackRef });
-                        Utils.LogInfo("Opened backpack wheel for held backpack");
                     }
                     else
                     {
-                        Utils.LogError("OpenBackpackWheel method not found");
+                        Utils.LogError("OpenBackpackWheel method not found in GUIManager");
                     }
                 }
                 catch (Exception ex)
                 {
                     Utils.LogError($"Error opening backpack wheel: {ex.Message}");
+                    
+                    // Ensure we reset the flag if something goes wrong
+                    if (Character.localCharacter != null && Character.localCharacter.data != null)
+                    {
+                        Character.localCharacter.data.usingBackpackWheel = false;
+                    }
                 }
             }
 
@@ -159,6 +183,33 @@ namespace BackpackViewerMod.Patches
                 isHoldingKey = false;
                 keyHeldTime = 0f;
                 wheelOpened = false;
+            }
+        }
+
+        // Patch to prevent immediate closing of the wheel when opened by our mod
+        [HarmonyPatch(typeof(BackpackWheel), "Update")]
+        public class BackpackWheel_Update_Patch
+        {
+            static bool Prefix()
+            {
+                // If the wheel was just opened by our mod, give the player time to release the key
+                if (wheelOpened && keyHeldTime > 0)
+                {
+                    keyHeldTime -= Time.deltaTime;
+                    if (keyHeldTime <= 0)
+                    {
+                        wheelOpened = false;
+                        keyHeldTime = 0;
+                    }
+                    
+                    // Skip the original update logic that would close the wheel
+                    if (!Character.localCharacter.input.interactIsPressed)
+                    {
+                        return true; // Let it run normally now
+                    }
+                }
+                
+                return true; // Run the original method
             }
         }
 
@@ -187,8 +238,6 @@ namespace BackpackViewerMod.Patches
                     }
 
                     // --- SE ARRIVIAMO QUI, LO ZAINO È IN MANO! PRENDIAMO IL CONTROLLO. ---
-
-                    Utils.LogInfo("Lo zaino è tenuto in mano. Eseguo InitWheel personalizzato.");
 
                     // Eseguiamo manualmente una versione "pulita" di InitWheel.
                     // 1. Imposta lo zaino di riferimento

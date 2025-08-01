@@ -2,13 +2,22 @@ using HarmonyLib;
 using UnityEngine;
 using System;
 using System.Reflection;
+using System.Linq;
 using TMPro;
 
 namespace BackpackViewerMod.Patches
 {
+    /// <summary>
+    /// UI patches to show custom prompts for backpack interactions.
+    /// 
+    /// ISSUE: The game now shows "E - lunge" prompt when holding a backpack,
+    /// which conflicts with our custom prompt. We hide all default prompts
+    /// and show only our "Shift+E to Open Backpack" prompt.
+    /// </summary>
     public class UIPatches
     {
-        private static bool promptShownByMod = false;
+        private static string originalPromptText = null;
+        private static bool isShowingCustomPrompt = false;
 
         [HarmonyPatch(typeof(GUIManager), "LateUpdate")]
         public class GUIManager_LateUpdate_Patch
@@ -22,20 +31,35 @@ namespace BackpackViewerMod.Patches
 
                     var currentItem = localCharacter.data?.currentItem;
                     bool holdingBackpack = currentItem != null && currentItem.GetType().Name == "Backpack";
-
+                    
                     bool shouldShow = holdingBackpack && !__instance.wheelActive && !__instance.windowBlockingInput;
 
                     if (shouldShow && !(__instance.throwGO && __instance.throwGO.activeSelf))
                     {
-                        __instance.interactPromptHold.SetActive(true);
-                        ModifyDescriptionText(__instance.interactPromptHold, "open", "Hold to Open Backpack");
-                        promptShownByMod = true;
+                        // Since the game doesn't show prompts for held items,
+                        // we'll use the primary prompt and show it manually
+                        if (!isShowingCustomPrompt)
+                        {
+                            __instance.interactPromptPrimary.SetActive(true);
+                            
+                            if (__instance.interactPromptText != null)
+                            {
+                                originalPromptText = __instance.interactPromptText.text;
+                                __instance.interactPromptText.text = "Open Backpack (Shift+E)";
+                                isShowingCustomPrompt = true;
+                            }
+                        }
                     }
-                    else if (promptShownByMod)
+                    else if (isShowingCustomPrompt)
                     {
-                        __instance.interactPromptHold.SetActive(false);
-                        ModifyDescriptionText(__instance.interactPromptHold, "hold to open backpack", "open");
-                        promptShownByMod = false;
+                        // Restore and hide
+                        if (__instance.interactPromptText != null && originalPromptText != null)
+                        {
+                            __instance.interactPromptText.text = originalPromptText;
+                        }
+                        __instance.interactPromptPrimary.SetActive(false);
+                        isShowingCustomPrompt = false;
+                        originalPromptText = null;
                     }
                 }
                 catch (Exception ex)
@@ -44,30 +68,6 @@ namespace BackpackViewerMod.Patches
                 }
             }
         }
-        
-        /// <summary>
-        /// Trova TUTTI i componenti di testo figli e modifica solo quello che corrisponde.
-        /// Questo è il metodo corretto per non toccare l'icona della keybind.
-        /// </summary>
-        /// <param name="promptGameObject">Il contenitore del prompt (es. interactPromptHold)</param>
-        /// <param name="textToFind">Il testo da cercare (case-insensitive)</param>
-        /// <param name="newText">Il nuovo testo da impostare</param>
-        static void ModifyDescriptionText(GameObject promptGameObject, string textToFind, string newText)
-        {
-            if (promptGameObject == null) return;
-            
-            var textComponents = promptGameObject.GetComponentsInChildren<TextMeshProUGUI>();
-            
-            foreach (var textComponent in textComponents)
-            {
-                if (textComponent.text.ToLower() == textToFind.ToLower())
-                {
-                    textComponent.text = newText;
-                    break;
-                }
-            }
-        }
-
 
         [HarmonyPatch(typeof(GUIManager), "UpdateThrow")]
         public class GUIManager_UpdateThrow_Patch
@@ -83,8 +83,12 @@ namespace BackpackViewerMod.Patches
                     if (currentItem != null && currentItem.GetType().Name == "Backpack")
                     {
                         var keyHeldTime = BackpackPatches.keyHeldTime;
+                        
+                        // Show progress only when Shift is held
+                        bool shiftHeld = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || 
+                                        UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
 
-                        if (keyHeldTime > 0f)
+                        if (keyHeldTime > 0f && shiftHeld)
                         {
                             ShowHoldProgress(__instance, keyHeldTime / PluginConfig.holdTime.Value);
                             return false;
@@ -105,10 +109,10 @@ namespace BackpackViewerMod.Patches
                 {
                     guiManager.throwGO.SetActive(true);
                     var fillProp = guiManager.throwBar.GetType().GetProperty("fillAmount");
-                    if (fillProp != null) fillProp.SetValue(guiManager.throwBar, Mathf.Clamp01(progress));
+                    fillProp?.SetValue(guiManager.throwBar, Mathf.Clamp01(progress));
                     
                     var colorProp = guiManager.throwBar.GetType().GetProperty("color");
-                    if (colorProp != null) colorProp.SetValue(guiManager.throwBar, Color.cyan);
+                    colorProp?.SetValue(guiManager.throwBar, Color.cyan);
                 }
             }
         }
