@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- This is the most appropriate target framework for the game's Unity version. -->
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <!-- This is the GUID of your mod. Example: com.github.YourAccount.BepInExTemplate -->
+    <AssemblyName>com.peakteam.backpackinsight</AssemblyName>
+    <!-- This is the display name of your mod. Example: BepInEx Template -->
+    <AssemblyTitle>BackpackInsight</AssemblyTitle>
+    <!-- This is the version number of your mod. -->
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <!-- The template already includes all Unity references! -->
+
+  <!-- PEAKLib references from lib folder -->
+  <ItemGroup>
+    <Reference Include="PEAKLib.Core">
+      <HintPath>..\..\..\..\lib\PEAKLib\com.github.PEAKModding.PEAKLib.Core.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="PEAKLib.ModConfig">
+      <HintPath>..\..\..\..\lib\PEAKLib\com.github.PEAKModding.PEAKLib.ModConfig.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="PEAKLib.UI">
+      <HintPath>..\..\..\..\lib\PEAKLib\com.github.PEAKModding.PEAKLib.UI.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- ILRepack for merging assemblies -->
+  <ItemGroup>
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.18.2" />
+  </ItemGroup>
+
+  <!-- ILRepack configuration for Release builds -->
+  <Target Name="ILRepack" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <ItemGroup>
+      <InputAssemblies Include="$(OutputPath)com.peakteam.backpackinsight.dll" />
+      <InputAssemblies Include="$(OutputPath)PEAKLib.Core.dll" />
+      <InputAssemblies Include="$(OutputPath)PEAKLib.ModConfig.dll" />
+      <InputAssemblies Include="$(OutputPath)PEAKLib.UI.dll" />
+    </ItemGroup>
+
+    <ILRepack 
+      Parallel="true" 
+      Internalize="true" 
+      InternalizeExcludePattern="^PEAKLib\." 
+      InputAssemblies="@(InputAssemblies)" 
+      OutputFile="$(OutputPath)com.peakteam.backpackinsight.merged.dll" 
+      TargetKind="Dll" 
+      LibraryPath="$(OutputPath)" />
+    
+    <Move SourceFiles="$(OutputPath)com.peakteam.backpackinsight.merged.dll" 
+          DestinationFiles="$(OutputPath)com.peakteam.backpackinsight.dll" />
+    
+    <!-- Clean up the separate PEAKLib dlls since they're now merged -->
+    <Delete Files="$(OutputPath)PEAKLib.Core.dll;$(OutputPath)PEAKLib.ModConfig.dll;$(OutputPath)PEAKLib.UI.dll" />
+    <Delete Files="$(OutputPath)PEAKLib.Core.pdb;$(OutputPath)PEAKLib.ModConfig.pdb;$(OutputPath)PEAKLib.UI.pdb" />
+  </Target>
+
+</Project>
