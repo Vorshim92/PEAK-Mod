@@ -186,10 +186,9 @@ namespace BackpackInsight.Patches
                     // Ensure we reset the flag if something goes wrong
                     try 
                     {
-                        var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
-                        if (localChar?.data != null)
+                        if (Character.localCharacter?.data != null)
                         {
-                            localChar.data.usingBackpackWheel = false;
+                            Character.localCharacter.data.usingBackpackWheel = false;
                         }
                     }
                     catch { }
@@ -216,8 +215,7 @@ namespace BackpackInsight.Patches
                     // Skip the original update logic that would close the wheel
                     try 
                     {
-                        var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
-                        if (localChar != null && !localChar.input.interactIsPressed)
+                        if (Character.localCharacter != null && !Character.localCharacter.input.interactIsPressed)
                         {
                             return true; // Let it run normally now
                         }
@@ -253,8 +251,7 @@ namespace BackpackInsight.Patches
                     }
                     
                     // Check if held by local character
-                    var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
-                    if (backpackItem.holderCharacter != localChar)
+                    if (backpackItem.holderCharacter != Character.localCharacter)
                     {
                         return true;
                     }
@@ -308,15 +305,14 @@ namespace BackpackInsight.Patches
             {
                 try
                 {
-                    var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
-                    if (localChar == null || localChar.data.currentItem == null)
+                    if (Character.localCharacter == null || Character.localCharacter.data.currentItem == null)
                     {
                         return true; // Non teniamo nulla, lascia fare al gioco
                     }
 
                     // Controlla se l'oggetto tenuto in mano è lo zaino a cui la ruota si riferisce
                     var heldItemIsThisBackpack = __instance.backpack.type == BackpackReference.BackpackType.Item && 
-                                                 __instance.backpack.view == localChar.data.currentItem.GetComponent<PhotonView>();
+                                                 __instance.backpack.view == Character.localCharacter.data.currentItem.GetComponent<PhotonView>();
 
                     if (heldItemIsThisBackpack)
                     {
