@@ -1,0 +1,7 @@
+{
+  "name": "Backpack Viewer",
+  "description": "Allows viewing backpack contents while holding it",
+  "version_number": "1.1.0",
+  "dependencies": [],
+  "website_url": "https://github.com/Vorshim92/PEAK-Mod/tree/main/PEAKMods/MyBackpack"
+}

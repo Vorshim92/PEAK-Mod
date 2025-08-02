@@ -4,7 +4,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>BackpackViewerMod</AssemblyName>
     <Description>Allows viewing backpack contents while holding it</Description>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
@@ -84,7 +84,18 @@
       <HintPath>$(GameManaged)\Photon3Unity3D.dll</HintPath>
       <Private>false</Private>
     </Reference>
-
+    <Reference Include="UnityEngine">
+      <HintPath>$(GameManaged)\UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Zorro.Core">
+      <HintPath>$(GameManaged)\Zorro.Core.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Zorro.ControllerSupport">
+      <HintPath>$(GameManaged)\Zorro.ControllerSupport.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
 
   

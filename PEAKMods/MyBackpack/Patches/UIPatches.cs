@@ -1,9 +1,12 @@
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 using System;
 using System.Reflection;
 using System.Linq;
 using TMPro;
+using Zorro;
+using Zorro.ControllerSupport;
 
 namespace BackpackViewerMod.Patches
 {
@@ -16,8 +19,8 @@ namespace BackpackViewerMod.Patches
     /// </summary>
     public class UIPatches
     {
-        private static string originalPromptText = null;
-        private static bool isShowingCustomPrompt = false;
+        private static GameObject customPromptContainer = null;
+        private static TextMeshProUGUI customPromptText = null;
 
         [HarmonyPatch(typeof(GUIManager), "LateUpdate")]
         public class GUIManager_LateUpdate_Patch
@@ -36,35 +39,182 @@ namespace BackpackViewerMod.Patches
 
                     if (shouldShow && !(__instance.throwGO && __instance.throwGO.activeSelf))
                     {
-                        // Since the game doesn't show prompts for held items,
-                        // we'll use the primary prompt and show it manually
-                        if (!isShowingCustomPrompt)
+                        // Create our custom prompt if it doesn't exist
+                        if (customPromptContainer == null)
                         {
-                            __instance.interactPromptPrimary.SetActive(true);
+                            CreateCustomPrompt(__instance);
+                        }
+                        
+                        if (customPromptContainer != null && !customPromptContainer.activeSelf)
+                        {
+                            customPromptContainer.SetActive(true);
                             
-                            if (__instance.interactPromptText != null)
+                            // Update text based on input device
+                            if (customPromptText != null)
                             {
-                                originalPromptText = __instance.interactPromptText.text;
-                                __instance.interactPromptText.text = "Open Backpack (Shift+E)";
-                                isShowingCustomPrompt = true;
+                                var currentScheme = Zorro.ControllerSupport.InputHandler.GetCurrentUsedInputScheme();
+                                if (currentScheme == Zorro.ControllerSupport.InputScheme.Gamepad)
+                                {
+                                    var gamepadType = Zorro.ControllerSupport.InputHandler.GetGamepadType();
+                                    
+                                    // Different button prompts based on controller type
+                                    if (gamepadType == Zorro.ControllerSupport.GamepadType.Dualshock || 
+                                        gamepadType == Zorro.ControllerSupport.GamepadType.Dualsense)
+                                    {
+                                        // PlayStation: L1 + Square
+                                        customPromptText.text = "Open Backpack (L1+□)";
+                                    }
+                                    else
+                                    {
+                                        // Xbox/Generic: LB + X
+                                        customPromptText.text = "Open Backpack (LB+X)";
+                                    }
+                                }
+                                else
+                                {
+                                    customPromptText.text = "Open Backpack (Shift+E)";
+                                }
                             }
                         }
                     }
-                    else if (isShowingCustomPrompt)
+                    else
                     {
-                        // Restore and hide
-                        if (__instance.interactPromptText != null && originalPromptText != null)
+                        // Hide our custom prompt
+                        if (customPromptContainer != null && customPromptContainer.activeSelf)
                         {
-                            __instance.interactPromptText.text = originalPromptText;
+                            customPromptContainer.SetActive(false);
                         }
-                        __instance.interactPromptPrimary.SetActive(false);
-                        isShowingCustomPrompt = false;
-                        originalPromptText = null;
                     }
                 }
                 catch (Exception ex)
                 {
                     Utils.LogError($"Error in GUIManager_LateUpdate_Patch: {ex.Message}");
+                }
+            }
+            
+            static void CreateCustomPrompt(GUIManager guiManager)
+            {
+                try
+                {
+                    
+                    // Find a template prompt to copy style from
+                    var templatePrompt = guiManager.interactPromptPrimary;
+                    if (templatePrompt == null) 
+                    {
+                        Utils.LogError("Template prompt is null!");
+                        return;
+                    }
+                    
+                    
+                    // Create a simple container instead of cloning the entire prompt
+                    customPromptContainer = new GameObject("BackpackModPrompt");
+                    customPromptContainer.transform.SetParent(templatePrompt.transform.parent, false);
+                    
+                    // Add RectTransform and configure it
+                    var rectTransform = customPromptContainer.AddComponent<RectTransform>();
+                    rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
+                    rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                    rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                    
+                    // Position below the primary prompt
+                    var templateRect = templatePrompt.GetComponent<RectTransform>();
+                    rectTransform.anchoredPosition = templateRect.anchoredPosition + new Vector2(0, -50);
+                    rectTransform.sizeDelta = new Vector2(400, 30); // Wider container
+                    
+                    
+                    // Clone the structure of the template prompt
+                    var templateChildren = templatePrompt.GetComponentsInChildren<Transform>();
+                    
+                    // Look for the key icon and text components in the template
+                    GameObject keyIconObj = null;
+                    GameObject textObj = null;
+                    
+                    foreach (var child in templateChildren)
+                    {
+                        if (child.name.Contains("Key") || child.name.Contains("Icon") || child.name.Contains("Input"))
+                        {
+                            keyIconObj = child.gameObject;
+                        }
+                        else if (child.GetComponent<TextMeshProUGUI>() != null && child != templatePrompt.transform)
+                        {
+                            textObj = child.gameObject;
+                        }
+                    }
+                    
+                    // Clone the key icon if found
+                    if (keyIconObj != null)
+                    {
+                        var clonedIcon = GameObject.Instantiate(keyIconObj, customPromptContainer.transform);
+                        clonedIcon.name = "KeyIcon";
+                        // Keep its relative position
+                    }
+                    
+                    // Clone the text object if found, otherwise create new
+                    if (textObj != null)
+                    {
+                        var clonedText = GameObject.Instantiate(textObj, customPromptContainer.transform);
+                        clonedText.name = "Text";
+                        customPromptText = clonedText.GetComponent<TextMeshProUGUI>();
+                        customPromptText.text = "Open Backpack (Shift+E)";
+                        
+                        // Force the text to be wider
+                        var textRect = clonedText.GetComponent<RectTransform>();
+                        
+                        // FIX: Impostiamo pivot e anchor corretti PRIMA di posizionare
+                        textRect.pivot = new Vector2(0f, 0.5f); // Pivot a sinistra
+                        textRect.anchorMin = new Vector2(0f, 0.5f);
+                        textRect.anchorMax = new Vector2(0f, 0.5f);
+                        
+                        // Ora impostiamo dimensione e posizione
+                        textRect.sizeDelta = new Vector2(350, textRect.sizeDelta.y);
+                        textRect.anchoredPosition = new Vector2(60f, -2f); // 60 pixel a destra, 2 pixel più in basso
+                        
+                        // Also ensure text doesn't wrap
+                        customPromptText.overflowMode = TextOverflowModes.Overflow;
+                        customPromptText.textWrappingMode = TextWrappingModes.NoWrap;
+                        
+                        // IMPORTANTE: Imposta l'allineamento del testo
+                        customPromptText.alignment = TextAlignmentOptions.Center;
+                    }
+                    else
+                    {
+                        // Fallback: create text manually
+                        textObj = new GameObject("Text");
+                        textObj.transform.SetParent(customPromptContainer.transform, false);
+                        customPromptText = textObj.AddComponent<TextMeshProUGUI>();
+                        
+                        // Copy all properties from template text if available
+                        var templateText = templatePrompt.GetComponentInChildren<TextMeshProUGUI>();
+                        if (templateText != null)
+                        {
+                            customPromptText.font = templateText.font;
+                            customPromptText.fontSize = templateText.fontSize;
+                            customPromptText.color = templateText.color;
+                            customPromptText.alignment = templateText.alignment;
+                            customPromptText.fontStyle = templateText.fontStyle;
+                            customPromptText.outlineWidth = templateText.outlineWidth;
+                            customPromptText.outlineColor = templateText.outlineColor;
+                            
+                            // Copy rect transform settings but override width
+                            var templateTextRect = templateText.GetComponent<RectTransform>();
+                            var textRect = textObj.GetComponent<RectTransform>();
+                            textRect.anchorMin = templateTextRect.anchorMin;
+                            textRect.anchorMax = templateTextRect.anchorMax;
+                            textRect.anchoredPosition = templateTextRect.anchoredPosition;
+                            textRect.sizeDelta = new Vector2(350, templateTextRect.sizeDelta.y); // Force wider text
+                            textRect.pivot = templateTextRect.pivot;
+                            
+                        }
+                        
+                        customPromptText.text = "Open Backpack (Shift+E)";
+                    }
+                    
+                    // Start hidden
+                    customPromptContainer.SetActive(false);
+                }
+                catch (Exception ex)
+                {
+                    Utils.LogError($"Error creating custom prompt: {ex.Message}");
                 }
             }
         }

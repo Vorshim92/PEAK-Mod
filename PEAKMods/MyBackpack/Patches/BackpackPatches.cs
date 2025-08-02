@@ -86,11 +86,31 @@ namespace BackpackViewerMod.Patches
                     return;
                 }
 
-                // Check if Shift key is held for modified behavior
-                bool shiftHeld = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || 
-                                UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
+                // Check if modifier is held (Shift for keyboard, LB/L1 for gamepad)
+                bool modifierHeld = false;
+                
+                // Check if character is actually sprinting - if so, don't open backpack
+                if (character.data.isSprinting)
+                {
+                    ResetKeyState();
+                    return;
+                }
+                
+                // Keyboard: Shift key
+                if (UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift) || 
+                    UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift))
+                {
+                    modifierHeld = true;
+                }
+                
+                // Gamepad: Left Shoulder button (LB/L1)
+                var gamepad = UnityEngine.InputSystem.Gamepad.current;
+                if (gamepad != null && gamepad.leftShoulder.isPressed)
+                {
+                    modifierHeld = true;
+                }
 
-                if (interactAction.IsPressed() && shiftHeld)
+                if (interactAction.IsPressed() && modifierHeld)
                 {
                     if (!isHoldingKey)
                     {
