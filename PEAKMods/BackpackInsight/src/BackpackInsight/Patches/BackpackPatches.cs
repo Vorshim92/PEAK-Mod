@@ -155,8 +155,16 @@ namespace BackpackInsight.Patches
                 try
                 {
                     var guiManagerType = AccessTools.TypeByName("GUIManager");
-                    var instanceProp = AccessTools.Property(guiManagerType, "Instance");
-                    var guiManager = instanceProp?.GetValue(null);
+                    // GUIManager.Instance might be a field, not a property
+                    var instanceField = AccessTools.Field(guiManagerType, "Instance");
+                    var guiManager = instanceField?.GetValue(null);
+                    
+                    if (guiManager == null)
+                    {
+                        // Try as property if field didn't work
+                        var instanceProp = AccessTools.Property(guiManagerType, "Instance");
+                        guiManager = instanceProp?.GetValue(null);
+                    }
 
                     if (guiManager == null)
                     {
