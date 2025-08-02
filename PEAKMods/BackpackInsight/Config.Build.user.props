@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <!-- Set if the default steam game install directory doesn't work. -->
-    <!-- <PeakGameRootDir></PeakGameRootDir> -->
+    <PeakGameRootDir>D:\SteamLibrary\steamapps\common\PEAK\</PeakGameRootDir>
     <!-- Set if your BepInEx/plugins/ directory isn't in the game files. -->
-    <!-- <PeakPluginsDir></PeakPluginsDir> -->
+      <ManagedDir>$(PeakGameRootDir)PEAK_Data\Managed\</ManagedDir>
   </PropertyGroup>
 
   <Target Name="DeployFiles" AfterTargets="Build">
