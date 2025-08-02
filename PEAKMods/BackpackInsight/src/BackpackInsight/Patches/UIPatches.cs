@@ -5,6 +5,8 @@ using System;
 using System.Reflection;
 using TMPro;
 using BepInEx.Logging;
+using BackpackInsight.Components;
+using Zorro.ControllerSupport;
 
 namespace BackpackInsight.Patches
 {
@@ -15,8 +17,7 @@ namespace BackpackInsight.Patches
     {
         private static readonly ManualLogSource Logger = Plugin.Log;
         
-        private static GameObject customPromptContainer = null;
-        private static TextMeshProUGUI customPromptText = null;
+        private static BackpackPromptUI customPrompt = null;
 
         [HarmonyPatch]
         public class GUIManager_LateUpdate_Patch
@@ -37,7 +38,7 @@ namespace BackpackInsight.Patches
                 try
                 {
                     // Check if prompts are enabled in config
-                    if (!Plugin.Instance.Config.Bind("General", "EnablePrompts", true).Value)
+                    if (!Plugin.ModConfig.EnablePrompts.Value)
                         return;
 
                     var characterType = AccessTools.TypeByName("Character");
@@ -66,22 +67,21 @@ namespace BackpackInsight.Patches
 
                     if (shouldShow && !(throwGO != null && throwGO.activeSelf))
                     {
-                        if (customPromptContainer == null)
+                        if (customPrompt == null)
                         {
                             CreateCustomPrompt(__instance);
                         }
                         
-                        if (customPromptContainer != null && !customPromptContainer.activeSelf)
+                        if (customPrompt != null)
                         {
-                            customPromptContainer.SetActive(true);
-                            UpdatePromptText();
+                            customPrompt.Show();
                         }
                     }
                     else
                     {
-                        if (customPromptContainer != null && customPromptContainer.activeSelf)
+                        if (customPrompt != null)
                         {
-                            customPromptContainer.SetActive(false);
+                            customPrompt.Hide();
                         }
                     }
                 }
@@ -103,62 +103,16 @@ namespace BackpackInsight.Patches
                         return;
                     }
                     
-                    // Create container
-                    customPromptContainer = new GameObject("BackpackModPrompt");
-                    customPromptContainer.transform.SetParent(templatePrompt.transform.parent, false);
+                    // Create BackpackPromptUI using PEAKLib patterns
+                    var promptGO = new GameObject("BackpackInsightPrompt");
+                    customPrompt = promptGO.AddComponent<BackpackPromptUI>();
+                    customPrompt.Initialize(templatePrompt.transform.parent);
                     
-                    var rectTransform = customPromptContainer.AddComponent<RectTransform>();
-                    rectTransform.anchorMin = new Vector2(0.5f, 0.5f);
-                    rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-                    rectTransform.pivot = new Vector2(0.5f, 0.5f);
-                    
+                    // Position below the main prompt
                     var templateRect = templatePrompt.GetComponent<RectTransform>();
-                    rectTransform.anchoredPosition = templateRect.anchoredPosition + new Vector2(0, -50);
-                    rectTransform.sizeDelta = new Vector2(400, 30);
+                    customPrompt.SetPosition(templateRect.anchoredPosition + new Vector2(0, -60));
                     
-                    // Clone key icon and text structure
-                    var templateChildren = templatePrompt.GetComponentsInChildren<Transform>();
-                    GameObject keyIconObj = null;
-                    GameObject textObj = null;
-                    
-                    foreach (var child in templateChildren)
-                    {
-                        if (child.name.Contains("Key") || child.name.Contains("Icon") || child.name.Contains("Input"))
-                        {
-                            keyIconObj = child.gameObject;
-                        }
-                        else if (child.GetComponent<TextMeshProUGUI>() != null && child != templatePrompt.transform)
-                        {
-                            textObj = child.gameObject;
-                        }
-                    }
-                    
-                    if (keyIconObj != null)
-                    {
-                        var clonedIcon = GameObject.Instantiate(keyIconObj, customPromptContainer.transform);
-                        clonedIcon.name = "KeyIcon";
-                    }
-                    
-                    if (textObj != null)
-                    {
-                        var clonedText = GameObject.Instantiate(textObj, customPromptContainer.transform);
-                        clonedText.name = "Text";
-                        customPromptText = clonedText.GetComponent<TextMeshProUGUI>();
-                        customPromptText.text = "Open Backpack (Shift+E)";
-                        
-                        var textRect = clonedText.GetComponent<RectTransform>();
-                        textRect.pivot = new Vector2(0f, 0.5f);
-                        textRect.anchorMin = new Vector2(0f, 0.5f);
-                        textRect.anchorMax = new Vector2(0f, 0.5f);
-                        textRect.sizeDelta = new Vector2(350, textRect.sizeDelta.y);
-                        textRect.anchoredPosition = new Vector2(60f, -2f);
-                        
-                        customPromptText.overflowMode = TextOverflowModes.Overflow;
-                        customPromptText.textWrappingMode = TextWrappingModes.NoWrap;
-                        customPromptText.alignment = TextAlignmentOptions.Center;
-                    }
-                    
-                    customPromptContainer.SetActive(false);
+                    Logger.LogInfo("BackpackPromptUI created successfully with PEAKLib");
                 }
                 catch (Exception ex)
                 {
@@ -166,52 +120,7 @@ namespace BackpackInsight.Patches
                 }
             }
 
-            static void UpdatePromptText()
-            {
-                if (customPromptText == null) return;
-
-                try
-                {
-                    // Check input scheme using reflection
-                    var inputHandlerType = AccessTools.TypeByName("Zorro.ControllerSupport.InputHandler");
-                    if (inputHandlerType != null)
-                    {
-                        var getCurrentSchemeMethod = AccessTools.Method(inputHandlerType, "GetCurrentUsedInputScheme");
-                        if (getCurrentSchemeMethod != null)
-                        {
-                            var currentScheme = getCurrentSchemeMethod.Invoke(null, null);
-                            if (currentScheme != null && currentScheme.ToString() == "Gamepad")
-                            {
-                                var getGamepadTypeMethod = AccessTools.Method(inputHandlerType, "GetGamepadType");
-                                if (getGamepadTypeMethod != null)
-                                {
-                                    var gamepadType = getGamepadTypeMethod.Invoke(null, null);
-                                    if (gamepadType != null)
-                                    {
-                                        string gamepadTypeName = gamepadType.ToString();
-                                        if (gamepadTypeName == "Dualshock" || gamepadTypeName == "Dualsense")
-                                        {
-                                            customPromptText.text = "Open Backpack (L1+□)";
-                                        }
-                                        else
-                                        {
-                                            customPromptText.text = "Open Backpack (LB+X)";
-                                        }
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError($"Error updating prompt text: {ex.Message}");
-                }
-
-                // Default to keyboard prompt
-                customPromptText.text = "Open Backpack (Shift+E)";
-            }
+            // UpdatePromptText is now handled inside BackpackPromptUI
         }
     }
 }

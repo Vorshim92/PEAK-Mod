@@ -115,13 +115,13 @@ namespace BackpackInsight.Patches
                 {
                     keyHeldTime += Time.deltaTime;
                     
-                    var holdTimeRequired = Plugin.Instance.Config.Bind("General", "HoldTime", 0.3f).Value;
+                    var holdTimeRequired = Plugin.ModConfig.HoldTime.Value;
                     
                     if (keyHeldTime >= holdTimeRequired)
                     {
                         OpenBackpackWheel(backpackItem, character);
                         isOpeningBackpack = true;
-                        openBackpackGracePeriod = 0.5f;
+                        openBackpackGracePeriod = Plugin.ModConfig.GracePeriod.Value;
                         keyHeldTime = 0f;
                     }
                 }
@@ -184,10 +184,15 @@ namespace BackpackInsight.Patches
                     Logger.LogError($"Error opening backpack wheel: {ex.Message}");
                     
                     // Ensure we reset the flag if something goes wrong
-                    if (Character.localCharacter != null && Character.localCharacter.data != null)
+                    try 
                     {
-                        Character.localCharacter.data.usingBackpackWheel = false;
+                        var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
+                        if (localChar?.data != null)
+                        {
+                            localChar.data.usingBackpackWheel = false;
+                        }
                     }
+                    catch { }
                 }
             }
         }
@@ -209,13 +214,138 @@ namespace BackpackInsight.Patches
                     }
                     
                     // Skip the original update logic that would close the wheel
-                    if (!Character.localCharacter.input.interactIsPressed)
+                    try 
                     {
-                        return true; // Let it run normally now
+                        var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
+                        if (localChar != null && !localChar.input.interactIsPressed)
+                        {
+                            return true; // Let it run normally now
+                        }
                     }
+                    catch { }
                 }
                 
                 return true; // Run the original method
+            }
+        }
+
+        /// <summary>
+        /// Questo patch nasconde la slice "Indossa Zaino" dalla ruota radiale
+        /// solo quando lo zaino è tenuto in mano dal giocatore.
+        /// </summary>
+        [HarmonyPatch(typeof(BackpackWheel), "InitWheel")]
+        public class BackpackWheel_InitWheel_Patch
+        {
+            static bool Prefix(BackpackWheel __instance, in BackpackReference bp)
+            {
+                try
+                {
+                    Item backpackItem = null;
+                    if (bp.type == BackpackReference.BackpackType.Item)
+                    {
+                        backpackItem = bp.view.GetComponent<Item>();
+                    }
+
+                    // Se lo zaino NON è tenuto in mano dal giocatore, lascia fare al gioco.
+                    if (backpackItem == null || backpackItem.itemState != ItemState.Held)
+                    {
+                        return true; // Esegui il metodo originale
+                    }
+                    
+                    // Check if held by local character
+                    var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
+                    if (backpackItem.holderCharacter != localChar)
+                    {
+                        return true;
+                    }
+
+                    // --- SE ARRIVIAMO QUI, LO ZAINO È IN MANO! PRENDIAMO IL CONTROLLO. ---
+
+                    // Eseguiamo manualmente una versione "pulita" di InitWheel.
+                    // 1. Imposta lo zaino di riferimento
+                    __instance.backpack = bp;
+                    __instance.chosenSlice = Zorro.Core.Optionable<BackpackWheelSlice.SliceData>.None;
+                    __instance.chosenItemText.text = "";
+
+                    // 2. Inizializza le slice con gli oggetti dentro lo zaino
+                    ItemSlot[] itemSlots = bp.GetData().itemSlots;
+                    for (byte b = 0; b < itemSlots.Length; b++)
+                    {
+                        if ((int)b < __instance.slices.Length - 1)
+                        {
+                            __instance.slices[b + 1].InitItemSlot(new System.ValueTuple<BackpackReference, byte>(bp, b), __instance);
+                        }
+                    }
+
+                    // 3. Nascondi la slice "indossa"
+                    if (__instance.slices != null && __instance.slices.Length > 0)
+                    {
+                        __instance.slices[0].gameObject.SetActive(false);
+                    }
+
+                    // 4. Salta la parte problematica del codice originale!
+                    // Non impostiamo __instance.currentlyHeldItem. Questo impedisce di "riporre" lo zaino.
+                    __instance.currentlyHeldItem.enabled = false;
+
+                    // 5. Attiva la ruota
+                    __instance.gameObject.SetActive(true);
+
+                    // 6. Impedisci al gioco di eseguire il suo InitWheel, che annullerebbe il nostro lavoro.
+                    return false; // Salta il metodo originale
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Errore nel patch BackpackWheel_InitWheel_Patch: {ex.Message}");
+                    return true; // In caso di errore, lascia fare al gioco per sicurezza.
+                }
+            }
+        }
+        
+        [HarmonyPatch(typeof(BackpackWheel), "Hover")]
+        public class BackpackWheel_Hover_Patch
+        {
+            static bool Prefix(BackpackWheel __instance, in BackpackWheelSlice.SliceData sliceData)
+            {
+                try
+                {
+                    var localChar = AccessTools.PropertyGetter(typeof(Character), "localCharacter")?.Invoke(null, null) as Character;
+                    if (localChar == null || localChar.data.currentItem == null)
+                    {
+                        return true; // Non teniamo nulla, lascia fare al gioco
+                    }
+
+                    // Controlla se l'oggetto tenuto in mano è lo zaino a cui la ruota si riferisce
+                    var heldItemIsThisBackpack = __instance.backpack.type == BackpackReference.BackpackType.Item && 
+                                                 __instance.backpack.view == localChar.data.currentItem.GetComponent<PhotonView>();
+
+                    if (heldItemIsThisBackpack)
+                    {
+                        // Siamo nel nostro caso speciale.
+                        
+                        // Se la slice è quella per "indossare", la saltiamo (è comunque invisibile)
+                        if(sliceData.isBackpackWear) return true;
+
+                        // Controlla se la slice è uno slot vuoto
+                        ItemSlot itemSlot = __instance.backpack.GetData().itemSlots[(int)sliceData.slotID];
+                        if (itemSlot.IsEmpty())
+                        {
+                            // È uno slot vuoto. Non mostriamo nessun testo.
+                            __instance.chosenItemText.text = "";
+                            __instance.chosenSlice = Zorro.Core.Optionable<BackpackWheelSlice.SliceData>.None;
+                            
+                            // Impediamo al gioco di eseguire la sua logica e mostrare "stash"
+                            return false; 
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"Errore nel patch BackpackWheel_Hover_Patch: {ex.Message}");
+                    return true; // In caso di errore, meglio essere sicuri
+                }
+                
+                // Per tutti gli altri casi, lascia che il gioco funzioni normalmente.
+                return true;
             }
         }
     }

@@ -1,6 +1,7 @@
 ﻿using BepInEx;
 using BepInEx.Logging;
 using BackpackInsight.Modules;
+using BackpackInsight.Config;
 using HarmonyLib;
 using PEAKLib.Core;
 using PEAKLib.ModConfig;
@@ -16,6 +17,7 @@ public partial class Plugin : BaseUnityPlugin
 {
     internal static ManualLogSource Log { get; private set; } = null!;
     internal static Plugin Instance { get; private set; } = null!;
+    internal static BackpackInsightConfig ModConfig { get; private set; } = null!;
     
     private Harmony _harmony = null!;
     private BackpackModule _backpackModule = null!;
@@ -29,6 +31,17 @@ public partial class Plugin : BaseUnityPlugin
 
         try
         {
+            // Initialize configuration
+            ModConfig = new BackpackInsightConfig(Config);
+            Log.LogInfo("Configuration initialized - will be available in PEAKLib ModConfig menu");
+            
+            // Check if mod is enabled
+            if (!ModConfig.EnableMod.Value)
+            {
+                Log.LogWarning("BackpackInsight is disabled in config");
+                return;
+            }
+            
             // Initialize Harmony
             _harmony = new Harmony(Info.Metadata.GUID);
             
@@ -39,6 +52,11 @@ public partial class Plugin : BaseUnityPlugin
             _harmony.PatchAll();
             
             Log.LogInfo($"Plugin {Name} successfully loaded!");
+            
+            if (ModConfig.DebugMode.Value)
+            {
+                Log.LogInfo("Debug mode is enabled");
+            }
         }
         catch (System.Exception ex)
         {
