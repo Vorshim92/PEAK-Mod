@@ -1,8 +1,11 @@
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using System;
 using System.Reflection;
 using BepInEx.Logging;
+using Zorro.Core;
+using Photon.Pun;
 
 namespace BackpackInsight.Patches
 {
@@ -20,44 +23,26 @@ namespace BackpackInsight.Patches
         private static bool isOpeningBackpack = false;
         private static float openBackpackGracePeriod = 0f;
 
-        [HarmonyPatch]
-        public class Character_Update_Patch
+        [HarmonyPatch(typeof(CharacterItems), "Update")]
+        public class CharacterItems_Update_Patch
         {
-            // Dynamic method resolution since we don't have the exact type
-            static MethodBase TargetMethod()
-            {
-                var characterType = AccessTools.TypeByName("Character");
-                if (characterType == null)
-                {
-                    Logger.LogError("Could not find Character type!");
-                    return null;
-                }
-                return AccessTools.Method(characterType, "Update");
-            }
-
-            static void Postfix(object __instance)
+            static void Postfix(CharacterItems __instance, Character ___character)
             {
                 try
                 {
-                    if (__instance == null) return;
+                    if (___character == null || !___character.IsLocal)
+                        return;
 
-                    // Get localCharacter field
-                    var localCharacterField = AccessTools.Field(__instance.GetType(), "localCharacter");
-                    var localCharacter = localCharacterField?.GetValue(null);
-                    if (localCharacter == null || localCharacter != __instance) return;
+                    var currentItem = ___character.data?.currentItem;
 
-                    // Get character data
-                    var dataField = AccessTools.Field(__instance.GetType(), "data");
-                    var data = dataField?.GetValue(__instance);
-                    if (data == null) return;
-
-                    // Check if holding backpack
-                    var currentItemField = AccessTools.Field(data.GetType(), "currentItem");
-                    var currentItem = currentItemField?.GetValue(data);
-                    if (currentItem == null || currentItem.GetType().Name != "Backpack") return;
-
-                    // Handle backpack opening logic
-                    HandleBackpackInput(__instance, data);
+                    if (currentItem != null && currentItem.GetType().Name == "Backpack")
+                    {
+                        HandleBackpackInput(currentItem, ___character);
+                    }
+                    else
+                    {
+                        ResetKeyState();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -65,13 +50,24 @@ namespace BackpackInsight.Patches
                 }
             }
 
-            private static void HandleBackpackInput(object character, object characterData)
+            private static void HandleBackpackInput(Item backpackItem, Character character)
             {
+                var guiManager = GUIManager.instance;
+                if (guiManager == null || guiManager.windowBlockingInput || guiManager.wheelActive)
+                {
+                    ResetKeyState();
+                    return;
+                }
+
+                if (character.data.passedOut || character.data.fullyPassedOut ||
+                    character.data.dead || character.data.isClimbingAnything)
+                {
+                    ResetKeyState();
+                    return;
+                }
+
                 // Check if character is sprinting
-                var isSprintingField = AccessTools.Field(characterData.GetType(), "isSprinting");
-                bool isSprinting = (bool)(isSprintingField?.GetValue(characterData) ?? false);
-                
-                if (isSprinting)
+                if (character.data.isSprinting)
                 {
                     ResetKeyState();
                     return;
@@ -123,7 +119,7 @@ namespace BackpackInsight.Patches
                     
                     if (keyHeldTime >= holdTimeRequired)
                     {
-                        OpenBackpackWheel(character);
+                        OpenBackpackWheel(backpackItem, character);
                         isOpeningBackpack = true;
                         openBackpackGracePeriod = 0.5f;
                         keyHeldTime = 0f;
@@ -150,67 +146,76 @@ namespace BackpackInsight.Patches
                 openBackpackGracePeriod = 0f;
             }
 
-            private static void OpenBackpackWheel(object character)
+            private static void OpenBackpackWheel(Item backpackItem, Character character)
             {
                 try
                 {
-                    var guiManagerType = AccessTools.TypeByName("GUIManager");
-                    // GUIManager.Instance might be a field, not a property
-                    var instanceField = AccessTools.Field(guiManagerType, "Instance");
-                    var guiManager = instanceField?.GetValue(null);
-                    
-                    if (guiManager == null)
+                    var backpackRefType = backpackItem.GetType().Assembly.GetType("BackpackReference");
+                    if (backpackRefType == null)
                     {
-                        // Try as property if field didn't work
-                        var instanceProp = AccessTools.Property(guiManagerType, "Instance");
-                        guiManager = instanceProp?.GetValue(null);
-                    }
-
-                    if (guiManager == null)
-                    {
-                        Logger.LogError("Could not get GUIManager instance");
+                        Logger.LogError("BackpackReference type not found");
                         return;
                     }
 
-                    var method = AccessTools.Method(guiManagerType, "OpenBackpackWheel");
-                    if (method == null)
+                    var getFromBackpackMethod = backpackRefType.GetMethod("GetFromBackpackItem",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+
+                    if (getFromBackpackMethod == null)
                     {
-                        Logger.LogError("Could not find OpenBackpackWheel method");
+                        Logger.LogError("GetFromBackpackItem method not found");
                         return;
                     }
 
-                    Logger.LogInfo("Opening backpack wheel!");
-                    method.Invoke(guiManager, new object[] { true });
+                    var backpackRef = getFromBackpackMethod.Invoke(null, new object[] { backpackItem });
+
+                    var openMethod = typeof(GUIManager).GetMethod("OpenBackpackWheel");
+                    if (openMethod != null)
+                    {
+                        Logger.LogInfo("Opening backpack wheel!");
+                        openMethod.Invoke(GUIManager.instance, new object[] { backpackRef });
+                    }
+                    else
+                    {
+                        Logger.LogError("OpenBackpackWheel method not found in GUIManager");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError($"Error opening backpack wheel: {ex.Message}");
+                    
+                    // Ensure we reset the flag if something goes wrong
+                    if (Character.localCharacter != null && Character.localCharacter.data != null)
+                    {
+                        Character.localCharacter.data.usingBackpackWheel = false;
+                    }
                 }
             }
         }
 
-        [HarmonyPatch]
+        [HarmonyPatch(typeof(BackpackWheel), "Update")]
         public class BackpackWheel_Update_Patch
         {
-            static MethodBase TargetMethod()
-            {
-                var type = AccessTools.TypeByName("BackpackWheel");
-                if (type == null)
-                {
-                    Logger.LogError("Could not find BackpackWheel type!");
-                    return null;
-                }
-                return AccessTools.Method(type, "Update");
-            }
 
             static bool Prefix(object __instance)
             {
+                // If the wheel was just opened by our mod, give the player time to release the key
                 if (isOpeningBackpack && openBackpackGracePeriod > 0f)
                 {
-                    // During grace period, prevent immediate closure
-                    return true;
+                    openBackpackGracePeriod -= Time.deltaTime;
+                    if (openBackpackGracePeriod <= 0f)
+                    {
+                        isOpeningBackpack = false;
+                        openBackpackGracePeriod = 0f;
+                    }
+                    
+                    // Skip the original update logic that would close the wheel
+                    if (!Character.localCharacter.input.interactIsPressed)
+                    {
+                        return true; // Let it run normally now
+                    }
                 }
-                return true;
+                
+                return true; // Run the original method
             }
         }
     }
